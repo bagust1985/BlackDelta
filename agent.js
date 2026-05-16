@@ -151,9 +151,12 @@ function getClientForRole(agentType) {
 }
 
 function getModelForRole(agentType, explicitModel) {
-  if (explicitModel) return explicitModel;
+  // Per-role provider config wins. Otherwise legacy callers passing
+  // config.llm.{screening,management,general}Model would send their
+  // OpenRouter slug to a Gemini/DeepSeek endpoint and 404.
   const p = getProviderForRole(agentType);
   if (p?.model) return p.model;
+  if (explicitModel) return explicitModel;
   return DEFAULT_MODEL;
 }
 
