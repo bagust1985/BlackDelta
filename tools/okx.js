@@ -95,7 +95,7 @@ async function fetchServerOkxEnrichment(tokenAddress, chainIndex = CHAIN_SOLANA)
       const text = await res.text();
       const payload = text ? JSON.parse(text) : null;
       if (!res.ok) {
-        throw new Error(payload?.error || `Agent Meridian OKX enrichment ${res.status}`);
+        throw new Error(payload?.error || `BlackDelta OKX enrichment ${res.status}`);
       }
       return payload;
     })

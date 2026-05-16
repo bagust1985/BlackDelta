@@ -41,3 +41,12 @@ discord-signals.json
 
 # Claude Code runtime lock
 .claude/scheduled_tasks.lock
+
+# Phase 3 — recorded HTTP fixtures (may contain API keys in headers)
+# Keep curated golden fixtures; ignore raw recordings.
+backtest/fixtures/run-*
+backtest/fixtures/**/*.ndjson
+
+# Phase 5 — regenerable semantic memory artifacts
+memory/cache/
+memory/index.json

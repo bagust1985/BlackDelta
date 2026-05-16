@@ -738,3 +738,49 @@ export function getPerformanceSummary() {
     total_lessons: data.lessons.length,
   };
 }
+
+/**
+ * Phase 5: semantic retrieval of lessons/pool-notes.
+ *
+ * Async because it embeds the query string on the fly. Returns a
+ * formatted block ready to splice into the system prompt, or null
+ * when the feature is disabled, the store is empty, or embedding fails.
+ *
+ * Callers should treat this as additive to getLessonsForPrompt():
+ *   const semantic = await getSemanticLessonContext({ query: "...", limit: 5 });
+ *   const lessons = getLessonsForPrompt({ agentType });
+ *   // concatenate both into the prompt
+ */
+export async function getSemanticLessonContext({ query, limit = 5, kind = null } = {}) {
+  if (!query || typeof query !== "string") return null;
+  let config, embed, vectorStore;
+  try {
+    config = (await import("./config.js")).config;
+    if (!config?.memory?.semantic) return null;
+    ({ embed } = await import("./memory/embedder.js"));
+    ({ vectorStore } = await import("./memory/vector-store.js"));
+  } catch {
+    return null;
+  }
+  try {
+    vectorStore.load();
+    if (!vectorStore.size()) return null;
+    const vec = await embed(query);
+    if (!vec) return null;
+    const hits = vectorStore.search(vec, limit * 2)
+      .filter((h) => !kind || h.meta?.kind === kind)
+      .slice(0, limit);
+    if (!hits.length) return null;
+    const lines = hits.map((h, i) => {
+      const m = h.meta || {};
+      const tag = m.kind === "lesson"
+        ? `[${(m.outcome || "neutral").toUpperCase()}]`
+        : `[POOL ${(m.pool || "?").slice(0, 6)}]`;
+      const body = m.rule || m.note || h.id;
+      return `${i + 1}. ${tag} (score=${h.score.toFixed(2)}) ${body}`;
+    });
+    return `── SEMANTIC (${hits.length}, query="${query.slice(0, 60)}…") ──\n${lines.join("\n")}`;
+  } catch {
+    return null;
+  }
+}

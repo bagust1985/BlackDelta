@@ -1,4 +1,4 @@
-import { agentMeridianJson, getAgentMeridianHeaders } from "./agent-meridian.js";
+import { blackDeltaJson, getBlackDeltaHeaders } from "./agent-blackdelta.js";
 
 export async function studyTopLPers({ pool_address, limit = 4 }) {
   const [poolRes, signalRes] = await Promise.all([
@@ -77,21 +77,21 @@ export async function studyTopLPers({ pool_address, limit = 4 }) {
       poolData.overview?.name ||
       `${poolData.overview?.tokenXSymbol || "TOKEN"}-${poolData.overview?.tokenYSymbol || "SOL"}`,
     message:
-      "LPAgent-backed top LP study from Agent Meridian 30m cached owner aggregates plus owner historical positions.",
+      "LPAgent-backed top LP study from BlackDelta 30m cached owner aggregates plus owner historical positions.",
     patterns,
     lpers,
   };
 }
 
 function fetchTopLp(poolAddress) {
-  return agentMeridianJson(`/top-lp/${poolAddress}`, {
-    headers: getAgentMeridianHeaders(),
+  return blackDeltaJson(`/top-lp/${poolAddress}`, {
+    headers: getBlackDeltaHeaders(),
   });
 }
 
 function fetchStudyTopLp(poolAddress) {
-  return agentMeridianJson(`/study-top-lp/${poolAddress}`, {
-    headers: getAgentMeridianHeaders(),
+  return blackDeltaJson(`/study-top-lp/${poolAddress}`, {
+    headers: getBlackDeltaHeaders(),
   });
 }
 

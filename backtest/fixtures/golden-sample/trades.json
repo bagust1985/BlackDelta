@@ -1,0 +1,36 @@
+[
+  {
+    "type": "deploy",
+    "ts": 1747353600000,
+    "pool": "POOL_AAA",
+    "dex": "meteora",
+    "pool_name": "SAMPLE-SOL",
+    "amount_sol": 1.2,
+    "discord_signal": true
+  },
+  {
+    "type": "deploy",
+    "ts": 1747357200000,
+    "pool": "POOL_BBB",
+    "dex": "meteora",
+    "pool_name": "TEST-SOL",
+    "amount_sol": 0.8,
+    "discord_signal": false
+  },
+  {
+    "type": "close",
+    "ts": 1747396800000,
+    "pool": "POOL_AAA",
+    "pnl_sol": 0.18,
+    "pnl_pct": 15.0,
+    "fees_earned_sol": 0.09
+  },
+  {
+    "type": "close",
+    "ts": 1747411200000,
+    "pool": "POOL_BBB",
+    "pnl_sol": -0.05,
+    "pnl_pct": -6.25,
+    "fees_earned_sol": 0.02
+  }
+]

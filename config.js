@@ -5,9 +5,10 @@ import { fileURLToPath } from "url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const USER_CONFIG_PATH = path.join(__dirname, "user-config.json");
 const DEFAULT_HIVEMIND_URL = "https://api.agentmeridian.xyz";
-const DEFAULT_AGENT_MERIDIAN_API_URL = "https://api.agentmeridian.xyz/api";
-const DEFAULT_AGENT_MERIDIAN_PUBLIC_KEY = "bWVyaWRpYW4taXMtdGhlLWJlc3QtYWdlbnRz";
-const DEFAULT_HIVEMIND_API_KEY = DEFAULT_AGENT_MERIDIAN_PUBLIC_KEY;
+// BlackDelta currently uses the legacy Agent Meridian API endpoint until backend migration is complete.
+const DEFAULT_BLACKDELTA_API_URL = "https://api.agentmeridian.xyz/api";
+const DEFAULT_BLACKDELTA_PUBLIC_KEY = "bWVyaWRpYW4taXMtdGhlLWJlc3QtYWdlbnRz";
+const DEFAULT_HIVEMIND_API_KEY = DEFAULT_BLACKDELTA_PUBLIC_KEY;
 
 const u = fs.existsSync(USER_CONFIG_PATH)
   ? JSON.parse(fs.readFileSync(USER_CONFIG_PATH, "utf8"))
@@ -39,7 +40,7 @@ if (u.llmBaseUrl) process.env.LLM_BASE_URL      ||= u.llmBaseUrl;
 if (u.llmApiKey)  process.env.LLM_API_KEY       ||= u.llmApiKey;
 if (u.dryRun !== undefined) process.env.DRY_RUN ||= String(u.dryRun);
 if (u.publicApiKey) process.env.PUBLIC_API_KEY ||= u.publicApiKey;
-if (u.agentMeridianApiUrl) process.env.AGENT_MERIDIAN_API_URL ||= u.agentMeridianApiUrl;
+if (u.blackDeltaApiUrl || u.agentMeridianApiUrl) process.env.BLACKDELTA_API_URL ||= u.blackDeltaApiUrl || u.agentMeridianApiUrl;
 
 const indicatorUserConfig = u.chartIndicators ?? {};
 
@@ -57,6 +58,50 @@ export const config = {
   risk: {
     maxPositions:    u.maxPositions    ?? 3,
     maxDeployAmount: u.maxDeployAmount ?? 50,
+  },
+
+  // ─── Multi-Agent Orchestrator (Phase 6) ──────
+  // mode: "single" | "shadow" | "sequential" | "parallel"
+  orchestrator: {
+    mode: u.orchestrator?.mode ?? "single",
+  },
+
+  // ─── Semantic Memory (Phase 5) ───────────────
+  memory: {
+    semantic:  u.memory?.semantic  ?? false,
+    provider:  u.memory?.provider  ?? "openai",       // openai | voyage
+    model:     u.memory?.model     ?? null,           // null = provider default
+    cacheDir:  u.memory?.cacheDir  ?? "./memory/cache",
+    topK:      u.memory?.topK      ?? 5,
+    mode:      u.memory?.mode      ?? "hybrid",       // semantic | keyword | hybrid
+  },
+
+  // ─── RPC + WebSocket Subscriptions (Phase 4) ─
+  rpc: {
+    httpUrl:    u.rpcUrl ?? process.env.RPC_URL ?? null,
+    wsEndpoint: u.rpcWsUrl ?? process.env.RPC_WS_URL ?? null,
+  },
+  subscriptions: {
+    enabled:          u.subscriptions?.enabled          ?? false,
+    fallbackPollMs:   u.subscriptions?.fallbackPollMs   ?? 30000,
+    staleThresholdMs: u.subscriptions?.staleThresholdMs ?? 90000,
+    reconnectBaseMs:  u.subscriptions?.reconnectBaseMs  ?? 2000,
+    reconnectMaxMs:   u.subscriptions?.reconnectMaxMs   ?? 60000,
+  },
+
+  // ─── Treasury Allocator (Phase 2) ─────────
+  // When `enabled: false`, callers should use computeDeployAmount() and
+  // optionally compute the allocator output in shadow-mode for log diff.
+  // When `enabled: true`, treasury.allocate() drives deploy sizing.
+  treasury: {
+    enabled:                u.treasury?.enabled                ?? false,
+    policy:                 u.treasury?.policy                 ?? "signalWeighted",
+    perPoolFloorSol:        u.treasury?.perPoolFloorSol        ?? (u.deployAmountSol ?? 0.5),
+    perPoolCeilSol:         u.treasury?.perPoolCeilSol         ?? (u.maxDeployAmount ?? 50),
+    maxPortfolioExposurePct: u.treasury?.maxPortfolioExposurePct ?? 0.85,
+    gasReserve:             u.treasury?.gasReserve             ?? (u.gasReserve ?? 0.2),
+    dexCaps:                u.treasury?.dexCaps                ?? {},
+    shadowAlertDiffPct:     u.treasury?.shadowAlertDiffPct     ?? 30,
   },
 
   // ─── Pool Screening Thresholds ───────────
@@ -174,8 +219,8 @@ export const config = {
   },
 
   api: {
-    url: nonEmptyString(u.agentMeridianApiUrl, process.env.AGENT_MERIDIAN_API_URL, DEFAULT_AGENT_MERIDIAN_API_URL),
-    publicApiKey: nonEmptyString(u.publicApiKey, process.env.PUBLIC_API_KEY, DEFAULT_AGENT_MERIDIAN_PUBLIC_KEY),
+    url: nonEmptyString(u.blackDeltaApiUrl, u.agentMeridianApiUrl, process.env.BLACKDELTA_API_URL, process.env.AGENT_MERIDIAN_API_URL, DEFAULT_BLACKDELTA_API_URL),
+    publicApiKey: nonEmptyString(u.publicApiKey, process.env.PUBLIC_API_KEY, DEFAULT_BLACKDELTA_PUBLIC_KEY),
     lpAgentRelayEnabled: u.lpAgentRelayEnabled ?? false,
   },
 

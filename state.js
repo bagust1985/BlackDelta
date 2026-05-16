@@ -32,7 +32,14 @@ function load() {
     return { positions: {}, recentEvents: [], lastUpdated: null };
   }
   try {
-    return JSON.parse(fs.readFileSync(STATE_FILE, "utf8"));
+    const parsed = JSON.parse(fs.readFileSync(STATE_FILE, "utf8"));
+    if (parsed && parsed.positions) {
+      for (const id of Object.keys(parsed.positions)) {
+        const p = parsed.positions[id];
+        if (p && typeof p === "object" && !p.dex) p.dex = "meteora";
+      }
+    }
+    return parsed;
   } catch (err) {
     log("state_error", `Failed to read state.json: ${err.message}`);
     return { positions: {}, lastUpdated: null };
@@ -68,6 +75,7 @@ export function trackPosition({
   organic_score,
   initial_value_usd,
   signal_snapshot = null,
+  dex = "meteora",
 }) {
   const state = load();
   state.positions[position] = {
@@ -75,6 +83,7 @@ export function trackPosition({
     pool,
     pool_name,
     strategy,
+    dex,
     bin_range,
     amount_sol,
     amount_x,

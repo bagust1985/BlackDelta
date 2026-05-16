@@ -1,4 +1,4 @@
-# Meridian — CLAUDE.md
+# BlackDelta — CLAUDE.md
 
 Autonomous DLMM liquidity provider agent for Meteora pools on Solana.
 
@@ -17,7 +17,7 @@ pool-memory.js      Per-pool deploy history + snapshots (pool-memory.json)
 strategy-library.js Saved LP strategies (strategy-library.json)
 briefing.js         Daily Telegram briefing (HTML)
 telegram.js         Telegram bot: polling, notifications (deploy/close/swap/OOR)
-hivemind.js         Agent Meridian HiveMind sync
+hivemind.js         BlackDelta HiveMind sync
 smart-wallets.js    KOL/alpha wallet tracker (smart-wallets.json)
 token-blacklist.js  Permanent token blacklist (token-blacklist.json)
 logger.js           Daily-rotating log files + action audit trail
@@ -200,7 +200,7 @@ const actualBaseFee = baseFactor > 0
 
 ## HiveMind
 
-Agent Meridian HiveMind sync is handled by `hivemind.js`. It uses built-in Agent Meridian defaults unless overridden by config or env.
+BlackDelta HiveMind sync is handled by `hivemind.js`. It uses built-in BlackDelta defaults unless overridden by config or env.
 
 ---
 

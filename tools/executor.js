@@ -1,14 +1,17 @@
 import { discoverPools, getPoolDetail, getTopCandidates } from "./screening.js";
-import {
-  getActiveBin,
-  deployPosition,
-  getMyPositions,
-  getWalletPositions,
-  getPositionPnl,
-  claimFees,
-  closePosition,
-  searchPools,
-} from "./dlmm.js";
+import { getAdapter } from "./dex/index.js";
+
+// Phase 1: route 8 DLMM operations through the DEX adapter registry.
+// Each shim picks the adapter via `args.dex`, falling back to the default
+// (meteora) when callers haven't annotated yet.
+const getActiveBin = (args = {}) => getAdapter(args.dex).getActiveBin(args);
+const deployPosition = (args = {}) => getAdapter(args.dex).deployPosition(args);
+const getMyPositions = (args = {}) => getAdapter(args.dex).getMyPositions(args);
+const getWalletPositions = (args = {}) => getAdapter(args.dex).getWalletPositions(args);
+const getPositionPnl = (args = {}) => getAdapter(args.dex).getPositionPnl(args);
+const claimFees = (args = {}) => getAdapter(args.dex).claimFees(args);
+const closePosition = (args = {}) => getAdapter(args.dex).closePosition(args);
+const searchPools = (args = {}) => getAdapter(args.dex).searchPools(args);
 import { getWalletBalances, swapToken } from "./wallet.js";
 import { studyTopLPers } from "./study.js";
 import { addLesson, clearAllLessons, clearPerformance, removeLessonsByKeyword, getPerformanceHistory, pinLesson, unpinLesson, listLessons } from "../lessons.js";
@@ -20,8 +23,10 @@ import { addToBlacklist, removeFromBlacklist, listBlacklist } from "../token-bla
 import { blockDev, unblockDev, listBlockedDevs } from "../dev-blocklist.js";
 import { addSmartWallet, removeSmartWallet, listSmartWallets, checkSmartWalletsOnPool } from "../smart-wallets.js";
 import { getTokenInfo, getTokenHolders, getTokenNarrative } from "./token.js";
-import { config, reloadScreeningThresholds, MIN_SAFE_BINS_BELOW } from "../config.js";
-import { getRecentDecisions } from "../decision-log.js";
+import { config, reloadScreeningThresholds, MIN_SAFE_BINS_BELOW, computeDeployAmount } from "../config.js";
+import { getRecentDecisions, appendDecision } from "../decision-log.js";
+import { allocate as treasuryAllocate, shadowDiff as treasuryShadowDiff } from "../treasury.js";
+import { wsSubscriber } from "../ws-subscriber.js";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -42,7 +47,7 @@ const TIMEFRAME_MINUTES = {
   "24h": 1440,
 };
 import { log, logAction } from "../logger.js";
-import { notifyDeploy, notifyClose, notifySwap } from "../telegram.js";
+import { notifyDeploy, notifyClose, notifySwap, sendMessage } from "../telegram.js";
 
 function numberOrNull(value) {
   const n = Number(value);
@@ -225,7 +230,7 @@ function normalizeConfigValue(key, value) {
     "agentId",
     "hiveMindPullMode",
     "publicApiKey",
-    "agentMeridianApiUrl",
+    "blackDeltaApiUrl",
   ]);
   if (value === null) return null;
   if (booleanKeys.has(key)) return coerceBoolean(value, key);
@@ -415,7 +420,7 @@ const toolMap = {
       hiveMindPullMode: ["hiveMind", "pullMode"],
       // meridian api / relay
       publicApiKey: ["api", "publicApiKey"],
-      agentMeridianApiUrl: ["api", "url"],
+      blackDeltaApiUrl: ["api", "url"],
       lpAgentRelayEnabled: ["api", "lpAgentRelayEnabled"],
       // chart indicators
       chartIndicatorsEnabled: ["indicators", "enabled", ["chartIndicators", "enabled"]],
@@ -539,6 +544,97 @@ const toolMap = {
   },
 };
 
+/**
+ * Treasury Phase 2: shadow-mode compare + optional override.
+ *
+ * Called before a deploy_position executes. Always logs a diff between
+ * the legacy per-pool size (the LLM's `amount_y`) and the allocator's
+ * portfolio-aware size. When `config.treasury.enabled === true`, the
+ * allocator size replaces the legacy value on `args.amount_y`.
+ *
+ * Never throws — failure to compute is logged and the legacy size is used.
+ */
+async function runTreasuryShadowOrOverride(args) {
+  try {
+    if (!args || !args.pool_address) return;
+    const legacySol = Number(args.amount_y ?? args.amount_sol ?? 0);
+    if (!Number.isFinite(legacySol) || legacySol <= 0) return;
+
+    const [balances, openPositionsResult] = await Promise.all([
+      getWalletBalances({}).catch(() => null),
+      getMyPositions({ force: false, silent: true }).catch(() => null),
+    ]);
+
+    const walletSol = Number(balances?.sol) || 0;
+    const openPositions = Array.isArray(openPositionsResult?.positions)
+      ? openPositionsResult.positions
+      : [];
+
+    // Build a single-candidate context for the allocator. Phase 3
+    // (backtest) and Phase 6 (orchestrator) will widen this to the full
+    // screener candidate list.
+    const candidates = [{
+      pool: args.pool_address,
+      dex: args.dex || "meteora",
+      volatility: args.volatility ?? null,
+      fee_active_tvl_ratio: args.fee_tvl_ratio ?? null,
+      organic_score: args.organic_score ?? null,
+      discord_signal: Boolean(args.discord_signal),
+    }];
+
+    const { sizes, audit } = treasuryAllocate({
+      candidates,
+      openPositions,
+      walletSol,
+      signals: {},
+      config: config.treasury,
+    });
+
+    const allocatorSol = Number(sizes[args.pool_address] || 0);
+    const diff = treasuryShadowDiff({
+      poolAddr: args.pool_address,
+      legacySol,
+      allocatorSol,
+    });
+
+    appendDecision({
+      type: "treasury_shadow",
+      actor: "TREASURY",
+      pool: args.pool_address,
+      pool_name: args.pool_name,
+      summary: `legacy=${diff.legacySol} alloc=${diff.allocatorSol} diff=${diff.diffPct}%`,
+      metrics: { ...diff, policy: audit.policy, enabled: config.treasury.enabled },
+    });
+    log("treasury_shadow", `pool=${args.pool_address.slice(0,8)} legacy=${diff.legacySol} alloc=${diff.allocatorSol} diff=${diff.diffPct}%`);
+
+    const alertThreshold = Number(config.treasury.shadowAlertDiffPct) || 30;
+    if (diff.diffPct != null && Math.abs(diff.diffPct) >= alertThreshold) {
+      sendMessage(
+        `⚖️ Treasury shadow diff ${diff.diffPct}% on ${args.pool_name || args.pool_address.slice(0, 8)}: legacy ${diff.legacySol} SOL vs allocator ${diff.allocatorSol} SOL`,
+      ).catch(() => {});
+    }
+
+    if (config.treasury.enabled) {
+      if (allocatorSol > 0) {
+        log("treasury_override", `pool=${args.pool_address.slice(0,8)} overriding ${legacySol} -> ${allocatorSol}`);
+        args.amount_y = allocatorSol;
+        if (args.amount_sol != null) args.amount_sol = allocatorSol;
+      } else {
+        // Allocator says "do not deploy here" (over cap, duplicate, sub-floor).
+        // Surface the reason back to the caller as a block — same shape as
+        // the safety-check refusal so the LLM treats it identically.
+        const skipReason =
+          audit.skipped?.find((s) => s.poolAddr === args.pool_address)?.reason
+          || "allocator returned size 0";
+        return { block: true, reason: `Treasury allocator skipped this pool: ${skipReason}` };
+      }
+    }
+  } catch (err) {
+    log("treasury_shadow_error", `shadow compute failed: ${err.message}`);
+  }
+  return null;
+}
+
 // Tools that modify on-chain state (need extra safety checks)
 const WRITE_TOOLS = new Set([
   "deploy_position",
@@ -580,6 +676,15 @@ export async function executeTool(name, args) {
     }
   }
 
+  // ─── Treasury Phase 2: shadow-mode diff + optional override ──
+  if (name === "deploy_position") {
+    const treasuryDecision = await runTreasuryShadowOrOverride(args);
+    if (treasuryDecision?.block) {
+      log("treasury_block", `${name} blocked: ${treasuryDecision.reason}`);
+      return { blocked: true, reason: treasuryDecision.reason };
+    }
+  }
+
   // ─── Execute ──────────────────────────────
   try {
     const result = await fn(args);
@@ -599,8 +704,22 @@ export async function executeTool(name, args) {
         notifySwap({ inputSymbol: args.input_mint?.slice(0, 8), outputSymbol: args.output_mint === "So11111111111111111111111111111111111111112" || args.output_mint === "SOL" ? "SOL" : args.output_mint?.slice(0, 8), amountIn: result.amount_in, amountOut: result.amount_out, tx: result.tx }).catch(() => {});
       } else if (name === "deploy_position") {
         notifyDeploy({ pair: result.pool_name || args.pool_name || args.pool_address?.slice(0, 8), amountSol: args.amount_y ?? args.amount_sol ?? 0, position: result.position, tx: result.txs?.[0] ?? result.tx, priceRange: result.price_range, rangeCoverage: result.range_coverage, binStep: result.bin_step, baseFee: result.base_fee }).catch(() => {});
+        // Phase 4: subscribe to the new position's pool account for sub-second OOR.
+        if (result.position && args.pool_address) {
+          wsSubscriber.watch({
+            position: result.position,
+            pool: args.pool_address,
+            dex: args.dex || "meteora",
+            lower: result.lower_bin ?? result.min_bin ?? null,
+            upper: result.upper_bin ?? result.max_bin ?? null,
+          }).catch(() => {});
+        }
       } else if (name === "close_position") {
         notifyClose({ pair: result.pool_name || args.position_address?.slice(0, 8), pnlUsd: result.pnl_usd ?? 0, pnlPct: result.pnl_pct ?? 0 }).catch(() => {});
+        // Phase 4: drop the WS subscription for the closed position.
+        if (args.position_address) {
+          wsSubscriber.unwatch(args.position_address).catch(() => {});
+        }
         // Note low-yield closes in pool memory so screener avoids redeploying
         if (args.reason && args.reason.toLowerCase().includes("yield")) {
           const poolAddr = result.pool || args.pool_address;

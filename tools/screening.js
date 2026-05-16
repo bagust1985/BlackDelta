@@ -4,7 +4,7 @@ import { isDevBlocked, getBlockedDevs } from "../dev-blocklist.js";
 import { log } from "../logger.js";
 import { isBaseMintOnCooldown, isPoolOnCooldown } from "../pool-memory.js";
 import { confirmIndicatorPreset } from "./chart-indicators.js";
-import { getAgentMeridianBase, getAgentMeridianHeaders } from "./agent-meridian.js";
+import { getBlackDeltaBase, getBlackDeltaHeaders } from "./agent-blackdelta.js";
 
 const DATAPI_JUP = "https://datapi.jup.ag/v1";
 
@@ -146,8 +146,8 @@ function getRawPoolScreeningRejectReason(pool, s) {
 }
 
 async function fetchDiscordSignalCandidates() {
-  const res = await fetch(`${getAgentMeridianBase()}/signals/discord/candidates`, {
-    headers: getAgentMeridianHeaders(),
+  const res = await fetch(`${getBlackDeltaBase()}/signals/discord/candidates`, {
+    headers: getBlackDeltaHeaders(),
   });
   if (!res.ok) throw new Error(`discord signal candidates ${res.status}`);
   const data = await res.json();
@@ -729,6 +729,7 @@ function condensePool(p) {
   return {
     pool: p.pool_address,
     name: p.name,
+    dex: "meteora",
     base: {
       symbol: p.token_x?.symbol,
       mint: p.token_x?.address,

@@ -1,10 +1,10 @@
 import { config } from "../config.js";
 
-export function getAgentMeridianBase() {
+export function getBlackDeltaBase() {
   return String(config.api.url || "https://api.agentmeridian.xyz/api").replace(/\/+$/, "");
 }
 
-export function getAgentMeridianHeaders({ json = false } = {}) {
+export function getBlackDeltaHeaders({ json = false } = {}) {
   const headers = {};
   if (json) headers["Content-Type"] = "application/json";
   if (config.api.publicApiKey) headers["x-api-key"] = config.api.publicApiKey;
@@ -53,8 +53,8 @@ async function fetchWithTimeout(url, options, timeoutMs) {
   }
 }
 
-async function agentMeridianJsonOnce(pathname, options = {}, timeoutMs = null) {
-  const res = await fetchWithTimeout(`${getAgentMeridianBase()}${pathname}`, options, timeoutMs);
+async function blackDeltaJsonOnce(pathname, options = {}, timeoutMs = null) {
+  const res = await fetchWithTimeout(`${getBlackDeltaBase()}${pathname}`, options, timeoutMs);
   const text = await res.text().catch(() => "");
   let payload = {};
   try {
@@ -72,10 +72,10 @@ async function agentMeridianJsonOnce(pathname, options = {}, timeoutMs = null) {
   return payload;
 }
 
-export async function agentMeridianJson(pathname, options = {}) {
+export async function blackDeltaJson(pathname, options = {}) {
   const { retry, ...fetchOptions } = options;
   if (!retry) {
-    return agentMeridianJsonOnce(pathname, fetchOptions);
+    return blackDeltaJsonOnce(pathname, fetchOptions);
   }
 
   const maxElapsedMs = Number(retry.maxElapsedMs || 30_000);
@@ -88,7 +88,7 @@ export async function agentMeridianJson(pathname, options = {}) {
     const elapsedMs = Date.now() - startedAt;
     const remainingMs = Math.max(1, maxElapsedMs - elapsedMs);
     try {
-      return await agentMeridianJsonOnce(
+      return await blackDeltaJsonOnce(
         pathname,
         fetchOptions,
         Math.min(Number(retry.perAttemptTimeoutMs || 10_000), remainingMs),

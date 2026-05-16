@@ -27,7 +27,7 @@ import { recordPerformance } from "../lessons.js";
 import { isBaseMintOnCooldown, isPoolOnCooldown } from "../pool-memory.js";
 import { normalizeMint } from "./wallet.js";
 import { appendDecision } from "../decision-log.js";
-import { agentMeridianJson, getAgentIdForRequests, getAgentMeridianHeaders } from "./agent-meridian.js";
+import { blackDeltaJson, getAgentIdForRequests, getBlackDeltaHeaders } from "./agent-blackdelta.js";
 
 // ─── Lazy SDK loader ───────────────────────────────────────────
 // @meteora-ag/dlmm → @coral-xyz/anchor uses CJS directory imports
@@ -80,9 +80,20 @@ let _wallet = null;
 
 function getConnection() {
   if (!_connection) {
-    _connection = new Connection(process.env.RPC_URL, "confirmed");
+    // Phase 4: surface the WS endpoint when configured so accountSubscribe
+    // works without manually constructing a second Connection. Defaults to
+    // null when omitted — web3.js will auto-derive ws:// from the HTTP URL.
+    const wsEndpoint = config?.rpc?.wsEndpoint || process.env.RPC_WS_URL || undefined;
+    _connection = new Connection(process.env.RPC_URL, {
+      commitment: "confirmed",
+      ...(wsEndpoint ? { wsEndpoint } : {}),
+    });
   }
   return _connection;
+}
+
+export function getSharedConnection() {
+  return getConnection();
 }
 
 function getWallet() {
@@ -626,11 +637,11 @@ export async function deployPosition({
       const wallet = getWallet();
       log(
         "deploy",
-        `Relay deploy via Agent Meridian: ${pool_address} activeBin ${activeBin.binId} bins ${minBinId}->${maxBinId} amountY=${finalAmountY}`,
+        `Relay deploy via BlackDelta: ${pool_address} activeBin ${activeBin.binId} bins ${minBinId}->${maxBinId} amountY=${finalAmountY}`,
       );
-      const order = await agentMeridianJson("/execution/zap-in/order", {
+      const order = await blackDeltaJson("/execution/zap-in/order", {
         method: "POST",
-        headers: getAgentMeridianHeaders({ json: true }),
+        headers: getBlackDeltaHeaders({ json: true }),
         body: JSON.stringify({
           agentId: getAgentIdForRequests(),
           idempotencyKey: `deploy:${pool_address}:${minBinId}:${maxBinId}:${finalAmountY}:${finalAmountX}`,
@@ -657,9 +668,9 @@ export async function deployPosition({
 
       const addLiquidity = signSerializedTransactions(addLiquidityUnsigned, wallet);
       const swap = signSerializedTransactions(swapUnsigned, wallet);
-      const submit = await agentMeridianJson("/execution/zap-in/submit", {
+      const submit = await blackDeltaJson("/execution/zap-in/submit", {
         method: "POST",
-        headers: getAgentMeridianHeaders({ json: true }),
+        headers: getBlackDeltaHeaders({ json: true }),
         body: JSON.stringify({
           requestId: order.requestId,
           lastValidBlockHeight: order?.order?.lastValidBlockHeight,
@@ -688,6 +699,7 @@ export async function deployPosition({
           pool: pool_address,
           pool_name,
           strategy: activeStrategy,
+          dex: "meteora",
           bin_range: { min: minBinId, max: maxBinId, bins_below: activeBinsBelow, bins_above: activeBinsAbove },
           bin_step,
           volatility: normalizedVolatility,
@@ -822,6 +834,7 @@ export async function deployPosition({
       pool: pool_address,
       pool_name,
       strategy: activeStrategy,
+      dex: "meteora",
       bin_range: { min: minBinId, max: maxBinId, bins_below: activeBinsBelow, bins_above: activeBinsAbove },
       bin_step,
       volatility: normalizedVolatility,
@@ -1043,13 +1056,13 @@ function deriveLpAgentPnlPct(lpData, solMode = false) {
   return (pnl / deposit) * 100;
 }
 
-async function fetchRawOpenPositionsFromMeridian({ walletAddress, agentId }) {
+async function fetchRawOpenPositionsFromBlackDelta({ walletAddress, agentId }) {
   const search = new URLSearchParams({
     owner: walletAddress,
     agentId: agentId || "agent-local",
   });
-  const payload = await agentMeridianJson(`/positions/open/raw?${search.toString()}`, {
-    headers: getAgentMeridianHeaders(),
+  const payload = await blackDeltaJson(`/positions/open/raw?${search.toString()}`, {
+    headers: getBlackDeltaHeaders(),
     retry: {
       maxElapsedMs: 30_000,
       perAttemptTimeoutMs: 10_000,
@@ -1087,15 +1100,15 @@ export async function getMyPositions({ force = false, silent = false } = {}) {
     let relayRequestId = null;
     if (shouldUseLpAgentRelay()) {
       try {
-        if (!silent) log("positions", "Fetching raw LPAgent open positions via Agent Meridian relay...");
-        const result = await fetchRawOpenPositionsFromMeridian({
+        if (!silent) log("positions", "Fetching raw LPAgent open positions via BlackDelta relay...");
+        const result = await fetchRawOpenPositionsFromBlackDelta({
           walletAddress,
           agentId: getAgentIdForRequests(),
         });
         relayLpAgentByPosition = result.byPosition || {};
         relayRequestId = result.requestId || result.request_id || null;
       } catch (error) {
-        log("positions_warn", `Agent Meridian raw relay failed; falling back to direct LPAgent fetch: ${error.message}`);
+        log("positions_warn", `BlackDelta raw relay failed; falling back to direct LPAgent fetch: ${error.message}`);
       }
     }
 
@@ -1414,9 +1427,9 @@ export async function closePosition({ position_address, reason }) {
       const closeToBinId = livePosition?.upper_bin ?? tracked?.bin_range?.max ?? 887272;
       const closeOutput = "allToken1";
 
-      const order = await agentMeridianJson("/execution/zap-out/order", {
+      const order = await blackDeltaJson("/execution/zap-out/order", {
         method: "POST",
-        headers: getAgentMeridianHeaders({ json: true }),
+        headers: getBlackDeltaHeaders({ json: true }),
         body: JSON.stringify({
           agentId: getAgentIdForRequests(),
           idempotencyKey: `close:${position_address}:10000`,
@@ -1452,9 +1465,9 @@ export async function closePosition({ position_address, reason }) {
       });
 
       relaySubmitted = true;
-      const submit = await agentMeridianJson("/execution/zap-out/submit", {
+      const submit = await blackDeltaJson("/execution/zap-out/submit", {
         method: "POST",
-        headers: getAgentMeridianHeaders({ json: true }),
+        headers: getBlackDeltaHeaders({ json: true }),
         body: JSON.stringify({
           requestId: order.requestId,
           lastValidBlockHeight: order?.order?.lastValidBlockHeight,

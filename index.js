@@ -34,6 +34,7 @@ import { stageSignals } from "./signal-tracker.js";
 import { getWeightsSummary } from "./signal-weights.js";
 import { bootstrapHiveMind, ensureAgentId, getHiveMindPullMode, isHiveMindEnabled, pullHiveMindLessons, pullHiveMindPresets, registerHiveMindAgent, startHiveMindBackgroundSync } from "./hivemind.js";
 import { appendDecision } from "./decision-log.js";
+import { wsSubscriber } from "./ws-subscriber.js";
 
 const entrypointPath = process.env.pm_exec_path || process.argv[1];
 const isMain = entrypointPath
@@ -194,6 +195,7 @@ function stopCronJobs() {
   for (const task of _cronTasks) task.stop();
   if (_cronTasks._pnlPollInterval) clearInterval(_cronTasks._pnlPollInterval);
   _cronTasks = [];
+  wsSubscriber.stop().catch(() => {});
 }
 
 export async function runManagementCycle({ silent = false } = {}) {
@@ -723,8 +725,53 @@ IMPORTANT:
   return screenReport;
 }
 
+/**
+ * Phase 4: bootstrap WS subscriptions for all currently-open positions.
+ * Noop when config.subscriptions.enabled === false.
+ */
+async function bootstrapWsSubscriptions() {
+  if (!wsSubscriber.isEnabled()) return;
+  try {
+    await wsSubscriber.start();
+    const result = await getMyPositions({ force: false, silent: true }).catch(() => null);
+    const positions = result?.positions || [];
+    let count = 0;
+    for (const p of positions) {
+      if (!p.position || !p.pool) continue;
+      const subId = await wsSubscriber.watch({
+        position: p.position,
+        pool: p.pool,
+        dex: p.dex || "meteora",
+        lower: p.lower_bin,
+        upper: p.upper_bin,
+      });
+      if (subId != null) count += 1;
+    }
+    log("ws_bootstrap", `subscribed ${count}/${positions.length} positions`);
+  } catch (err) {
+    log("ws_bootstrap_warn", `failed: ${err.message}`);
+  }
+}
+
+let _wsEventCooldownAt = 0;
+function wireWsEventHandlers() {
+  if (!wsSubscriber.isEnabled()) return;
+  wsSubscriber.removeAllListeners("oor");
+  wsSubscriber.on("oor", ({ pool, position, activeBin, lower, upper }) => {
+    const cooldownMs = (config.schedule.managementIntervalMin || 10) * 60 * 1000;
+    if (Date.now() - _wsEventCooldownAt < cooldownMs) return;
+    _wsEventCooldownAt = Date.now();
+    log("ws_event", `OOR ${position.slice(0, 8)} pool=${pool.slice(0, 8)} activeBin=${activeBin} range=[${lower},${upper}] — triggering management`);
+    runManagementCycle({ silent: true }).catch((e) =>
+      log("cron_error", `WS-triggered management failed: ${e.message}`),
+    );
+  });
+}
+
 export function startCronJobs() {
   stopCronJobs(); // stop any running tasks before (re)starting
+  wireWsEventHandlers();
+  bootstrapWsSubscriptions().catch((e) => log("ws_bootstrap_error", e.message));
 
   const mgmtTask = cron.schedule(`*/${Math.max(1, config.schedule.managementIntervalMin)} * * * *`, async () => {
     if (_managementBusy) return;
@@ -765,6 +812,10 @@ Summarize the current portfolio health, total fees earned, and performance of al
   let _pnlPollBusy = false;
   const pnlPollInterval = setInterval(async () => {
     if (_managementBusy || _screeningBusy || _pnlPollBusy) return;
+    // Phase 4: when WS subscriber is enabled and fresh, skip this poll —
+    // OOR + tick events drive management directly. The watchdog wakes up
+    // again automatically once the feed goes stale.
+    if (wsSubscriber.isEnabled() && !wsSubscriber.isStale()) return;
     _pnlPollBusy = true;
     try {
       const result = await getMyPositions({ force: true, silent: true }).catch(() => null);
@@ -819,6 +870,38 @@ Summarize the current portfolio health, total fees earned, and performance of al
   // Store interval ref so stopCronJobs can clear it
   _cronTasks._pnlPollInterval = pnlPollInterval;
   log("cron", `Cycles started — management every ${config.schedule.managementIntervalMin}m, screening every ${config.schedule.screeningIntervalMin}m`);
+
+  // Phase 4: start WS subscriber + watch existing positions.
+  // No-op when config.subscriptions.enabled === false.
+  startWsSubscriber().catch((err) => log("ws_error", `WS startup failed: ${err.message}`));
+}
+
+async function startWsSubscriber() {
+  if (!wsSubscriber.isEnabled()) return;
+  await wsSubscriber.start();
+
+  // OOR events trigger the management cycle the same way the deterministic
+  // close rule does — but instantly instead of waiting for the 30s poll.
+  wsSubscriber.on("oor", ({ pool, position, activeBin, lower, upper }) => {
+    const cooldownMs = config.schedule.managementIntervalMin * 60 * 1000;
+    const sinceLastTrigger = Date.now() - _pollTriggeredAt;
+    if (sinceLastTrigger < cooldownMs) return;
+    _pollTriggeredAt = Date.now();
+    log("ws_oor", `pool=${pool.slice(0, 8)} pos=${position.slice(0, 8)} active=${activeBin} range=[${lower},${upper}] — triggering management`);
+    runManagementCycle({ silent: true }).catch((e) => log("cron_error", `WS-triggered management failed: ${e.message}`));
+  });
+
+  // Subscribe to every currently-open position.
+  const positions = await getMyPositions({ force: true, silent: true }).catch(() => null);
+  for (const p of positions?.positions || []) {
+    await wsSubscriber.watch({
+      position: p.position,
+      pool: p.pool,
+      dex: p.dex || "meteora",
+      lower: p.lower_bin,
+      upper: p.upper_bin,
+    }).catch(() => {});
+  }
 }
 
 // ═══════════════════════════════════════════
@@ -848,6 +931,7 @@ async function shutdown(signal) {
   log("shutdown", `Received ${signal}. Shutting down...`);
   stopPolling();
   stopCronJobs();
+  await wsSubscriber.stop().catch(() => {});
 
   const positions = await withTimeout(
     getMyPositions({ force: true, silent: true }).catch((error) => {
