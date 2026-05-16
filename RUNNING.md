@@ -103,8 +103,12 @@ WALLET_PRIVATE_KEY=
 RPC_URL=https://mainnet.helius-rpc.com/?api-key=YOUR_KEY
 RPC_WS_URL=wss://mainnet.helius-rpc.com/?api-key=YOUR_KEY
 
-# LLM
+# LLM — OpenRouter (default single-provider mode)
 OPENROUTER_API_KEY=sk-or-v1-xxxxxxxxxx
+
+# LLM — Per-role native providers (optional, see Section 2.5)
+# DEEPSEEK_API_KEY=sk-xxx
+# GEMINI_API_KEY=AIzaSy...
 
 # Optional — Telegram
 TELEGRAM_BOT_TOKEN=
@@ -120,6 +124,70 @@ OPENAI_API_KEY=
 DRY_RUN=true
 EOF
 chmod 600 .env
+```
+
+---
+
+## 2.5. Per-Role LLM Provider (Optional, Powerful)
+
+Default-nya semua role (Screener, Manager, General) pakai 1 LLM gateway (OpenRouter atau `LLM_BASE_URL` yang lo set). Tapi kalau lo punya subscription DeepSeek + Gemini langsung dan mau pakai keduanya paralel, lo bisa **route per role**.
+
+### Setup
+
+Tambah API key native di `.env`:
+
+```bash
+DEEPSEEK_API_KEY=sk-xxxxxxxxxxxxxxxx
+GEMINI_API_KEY=AIzaSyXXXXXXXXXXXXX
+```
+
+Lalu di `user-config.json`, tambah block `llm.providers`:
+
+```jsonc
+{
+  "llm": {
+    "providers": {
+      "screening": {
+        "baseUrl": "https://generativelanguage.googleapis.com/v1beta/openai/",
+        "apiKeyEnv": "GEMINI_API_KEY",
+        "model": "gemini-2.5-flash"
+      },
+      "management": {
+        "baseUrl": "https://api.deepseek.com/v1",
+        "apiKeyEnv": "DEEPSEEK_API_KEY",
+        "model": "deepseek-chat"
+      },
+      "general": {
+        "baseUrl": "https://generativelanguage.googleapis.com/v1beta/openai/",
+        "apiKeyEnv": "GEMINI_API_KEY",
+        "model": "gemini-2.5-flash"
+      }
+    }
+  }
+}
+```
+
+**Semantics:**
+- Tiap role lookup `providers[role]` → kalau ada + env var-nya terisi, pakai endpoint native
+- Kalau provider config kosong / env var nggak ada → fallback ke `OPENROUTER_API_KEY` / `LLM_BASE_URL` (backward compat)
+- Client di-cache per `(baseUrl, apiKey)` tuple — nggak instantiate ulang setiap call
+
+**Common endpoints:**
+
+| Provider | `baseUrl` | `apiKeyEnv` | `model` examples |
+|---|---|---|---|
+| DeepSeek | `https://api.deepseek.com/v1` | `DEEPSEEK_API_KEY` | `deepseek-chat`, `deepseek-reasoner` |
+| Gemini (OpenAI-compat) | `https://generativelanguage.googleapis.com/v1beta/openai/` | `GEMINI_API_KEY` | `gemini-2.5-flash`, `gemini-2.5-pro` |
+| OpenAI | `https://api.openai.com/v1` | `OPENAI_API_KEY` | `gpt-5`, `gpt-5-mini` |
+| OpenRouter | `https://openrouter.ai/api/v1` | `OPENROUTER_API_KEY` | `deepseek/deepseek-chat-v3.1`, dll |
+| LM Studio | `http://localhost:1234/v1` | `LLM_API_KEY` (any) | model id dari LM Studio |
+
+**Catatan:** kalau pakai per-role provider, **model fallback OpenRouter (`stepfun/step-3.5-flash:free`) di-skip** otomatis pas retry — provider error 502/503 cuma retry dengan model yang sama.
+
+### Verify
+
+```bash
+node test/test-per-role-provider.js
 ```
 
 ---

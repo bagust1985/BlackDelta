@@ -189,6 +189,20 @@ export const config = {
     managementModel: u.managementModel ?? process.env.LLM_MODEL ?? "openrouter/healer-alpha",
     screeningModel:  u.screeningModel  ?? process.env.LLM_MODEL ?? "openrouter/hunter-alpha",
     generalModel:    u.generalModel    ?? process.env.LLM_MODEL ?? "openrouter/healer-alpha",
+
+    // Per-role native provider support (optional). When set, the role uses
+    // an OpenAI-compatible endpoint with its own baseUrl + apiKey. When
+    // omitted, falls back to LLM_BASE_URL / OPENROUTER_API_KEY (legacy).
+    //
+    // Each entry shape: { baseUrl, apiKeyEnv, model }
+    //   - baseUrl:   OpenAI-compatible endpoint (e.g. DeepSeek v1, Gemini OpenAI-compat)
+    //   - apiKeyEnv: name of env var holding the API key (so secrets stay out of JSON)
+    //   - model:     model name as the provider expects it
+    providers: {
+      screening:  u.llm?.providers?.screening  ?? null,
+      management: u.llm?.providers?.management ?? null,
+      general:    u.llm?.providers?.general    ?? null,
+    },
   },
 
   // ─── Darwinian Signal Weighting ───────

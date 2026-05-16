@@ -6,6 +6,27 @@
   "llmModel": "minimax/minimax-m2.7",
   "dryRun": true,
 
+  "_per_role_provider_example": "Uncomment `llm.providers` block below to route each role to a different OpenAI-compatible endpoint. Each entry needs baseUrl + apiKeyEnv (env var name) + model. Leave the block out to use the single global LLM_BASE_URL / OPENROUTER_API_KEY.",
+  "llm_DISABLED": {
+    "providers": {
+      "screening": {
+        "baseUrl": "https://generativelanguage.googleapis.com/v1beta/openai/",
+        "apiKeyEnv": "GEMINI_API_KEY",
+        "model": "gemini-2.5-flash"
+      },
+      "management": {
+        "baseUrl": "https://api.deepseek.com/v1",
+        "apiKeyEnv": "DEEPSEEK_API_KEY",
+        "model": "deepseek-chat"
+      },
+      "general": {
+        "baseUrl": "https://generativelanguage.googleapis.com/v1beta/openai/",
+        "apiKeyEnv": "GEMINI_API_KEY",
+        "model": "gemini-2.5-flash"
+      }
+    }
+  },
+
   "deployAmountSol": 0.5,
   "maxPositions": 3,
   "minSolToOpen": 0.55,

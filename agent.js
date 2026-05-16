@@ -91,19 +91,74 @@ import { getStateSummary } from "./state.js";
 import { getLessonsForPrompt, getPerformanceSummary } from "./lessons.js";
 import { getDecisionSummary } from "./decision-log.js";
 
-// Supports OpenRouter (default) or any OpenAI-compatible local server (e.g. LM Studio)
-// To use LM Studio: set LLM_BASE_URL=http://localhost:1234/v1 and LLM_API_KEY=lm-studio in .env
+// Supports OpenRouter (default) or any OpenAI-compatible endpoint.
+// Two modes:
+//   1) Single-provider (legacy): LLM_BASE_URL + LLM_API_KEY env vars, or
+//      OPENROUTER_API_KEY for default OpenRouter routing.
+//   2) Per-role provider (new): config.llm.providers.{screening,management,general}
+//      lets each role hit a different OpenAI-compatible endpoint with its own
+//      base URL, API key (via env var name), and model.
+//
 // Lazy-init so tests and Phase 6 orchestrator scaffolding can import agent.js
 // without an API key in the environment.
-let _client = null;
-function getClient() {
-  if (_client) return _client;
-  _client = new OpenAI({
-    baseURL: process.env.LLM_BASE_URL || "https://openrouter.ai/api/v1",
-    apiKey: process.env.LLM_API_KEY || process.env.OPENROUTER_API_KEY || "missing",
+
+const _clientCache = new Map();
+
+function _newClient({ baseURL, apiKey }) {
+  return new OpenAI({
+    baseURL,
+    apiKey: apiKey || "missing",
     timeout: 5 * 60 * 1000,
   });
-  return _client;
+}
+
+function getDefaultClient() {
+  const key = "__default__";
+  if (_clientCache.has(key)) return _clientCache.get(key);
+  const client = _newClient({
+    baseURL: process.env.LLM_BASE_URL || "https://openrouter.ai/api/v1",
+    apiKey: process.env.LLM_API_KEY || process.env.OPENROUTER_API_KEY,
+  });
+  _clientCache.set(key, client);
+  return client;
+}
+
+function roleKeyFromAgentType(agentType) {
+  if (agentType === "SCREENER") return "screening";
+  if (agentType === "MANAGER")  return "management";
+  return "general";
+}
+
+function getProviderForRole(agentType) {
+  const cfg = config.llm?.providers?.[roleKeyFromAgentType(agentType)];
+  if (!cfg || !cfg.baseUrl || !cfg.apiKeyEnv) return null;
+  const apiKey = process.env[cfg.apiKeyEnv];
+  if (!apiKey) {
+    log("llm_warn", `Provider for ${agentType} configured but ${cfg.apiKeyEnv} is not set — falling back to default`);
+    return null;
+  }
+  return { baseUrl: cfg.baseUrl, apiKey, model: cfg.model || null };
+}
+
+function getClientForRole(agentType) {
+  const p = getProviderForRole(agentType);
+  if (!p) return getDefaultClient();
+  const key = `${p.baseUrl}|${p.apiKey}`;
+  if (_clientCache.has(key)) return _clientCache.get(key);
+  const client = _newClient({ baseURL: p.baseUrl, apiKey: p.apiKey });
+  _clientCache.set(key, client);
+  return client;
+}
+
+function getModelForRole(agentType, explicitModel) {
+  if (explicitModel) return explicitModel;
+  const p = getProviderForRole(agentType);
+  if (p?.model) return p.model;
+  return DEFAULT_MODEL;
+}
+
+function isUsingPerRoleProvider(agentType) {
+  return getProviderForRole(agentType) !== null;
 }
 
 const DEFAULT_MODEL = process.env.LLM_MODEL || "openrouter/healer-alpha";
@@ -192,10 +247,14 @@ export async function agentLoop(goal, maxSteps = config.llm.maxSteps, sessionHis
     log("agent", `Step ${step + 1}/${maxSteps}`);
 
     try {
-      const activeModel = model || DEFAULT_MODEL;
+      const activeModel = getModelForRole(agentType, model);
 
-      // Retry up to 3 times on transient provider errors (502, 503, 529)
+      // Retry up to 3 times on transient provider errors (502, 503, 529).
+      // FALLBACK_MODEL is OpenRouter-only; when a per-role native provider
+      // is active (DeepSeek, Gemini, etc.) we skip the swap and just retry
+      // with the same model.
       const FALLBACK_MODEL = "stepfun/step-3.5-flash:free";
+      const allowModelFallback = !isUsingPerRoleProvider(agentType);
       let response;
       let usedModel = activeModel;
       // Force a tool call on step 0 for action intents — prevents the model from inventing deploy/close outcomes
@@ -204,7 +263,7 @@ export async function agentLoop(goal, maxSteps = config.llm.maxSteps, sessionHis
 
       for (let attempt = 0; attempt < 3; attempt++) {
         try {
-          response = await getClient().chat.completions.create({
+          response = await getClientForRole(agentType).chat.completions.create({
             model: usedModel,
             messages,
             tools: getToolsForRole(agentType, goal),
@@ -232,7 +291,7 @@ export async function agentLoop(goal, maxSteps = config.llm.maxSteps, sessionHis
         const errCode = response.error?.code;
         if (errCode === 502 || errCode === 503 || errCode === 529) {
           const wait = (attempt + 1) * 5000;
-          if (attempt === 1 && usedModel !== FALLBACK_MODEL) {
+          if (allowModelFallback && attempt === 1 && usedModel !== FALLBACK_MODEL) {
             usedModel = FALLBACK_MODEL;
             log("agent", `Switching to fallback model ${FALLBACK_MODEL}`);
           } else {
