@@ -154,6 +154,13 @@ async function validateDeployPoolThresholds(args) {
       reason: `Pool ${volatilityTimeframe} volatility ${volatility ?? "unknown"} is unusable. Refusing deploy.`,
     };
   }
+  const maxVolatility = numberOrNull(config.screening.maxVolatility);
+  if (maxVolatility != null && maxVolatility > 0 && volatility > maxVolatility) {
+    return {
+      pass: false,
+      reason: `Pool ${volatilityTimeframe} volatility ${volatility} is above configured maxVolatility ${maxVolatility} (crash-prone).`,
+    };
+  }
 
   const actualBinStep = poolDetailBinStep(detail);
   const minStep = numberOrNull(config.screening.minBinStep);
