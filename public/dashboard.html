@@ -1,0 +1,480 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BlackDelta — Terminal</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  background: #0d0d0d;
+  font-family: 'SF Mono', 'Menlo', 'Monaco', 'Courier New', monospace;
+  color: #e0e0e0;
+  font-size: 13px;
+  line-height: 1.5;
+  min-height: 100vh;
+  padding: 20px;
+  background-image:
+    radial-gradient(at 20% 30%, rgba(20, 20, 20, 0.3) 0%, transparent 50%),
+    radial-gradient(at 80% 70%, rgba(10, 10, 10, 0.4) 0%, transparent 50%);
+}
+
+.terminal-window {
+  max-width: 1280px;
+  margin: 0 auto;
+  background: #1e1e1e;
+  border-radius: 10px;
+  box-shadow: 0 25px 70px rgba(0, 0, 0, 0.6), 0 0 1px rgba(255, 255, 255, 0.1);
+  overflow: hidden;
+}
+
+.terminal-header {
+  background: linear-gradient(to bottom, #3e3e3e, #2a2a2a);
+  height: 28px;
+  display: flex;
+  align-items: center;
+  padding: 0 14px;
+  border-bottom: 1px solid #000;
+  position: relative;
+}
+
+.traffic-lights { display: flex; gap: 8px; }
+.light {
+  width: 12px; height: 12px;
+  border-radius: 50%;
+  display: inline-block;
+  box-shadow: inset 0 0 1px rgba(0,0,0,0.4);
+}
+.light.red { background: #ff5f56; }
+.light.yellow { background: #ffbd2e; }
+.light.green { background: #27c93f; }
+
+.terminal-title {
+  position: absolute; left: 50%; transform: translateX(-50%);
+  color: #999;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.terminal-body {
+  padding: 24px 28px 28px;
+  min-height: 500px;
+  background:
+    repeating-linear-gradient(
+      to bottom,
+      transparent 0px, transparent 2px,
+      rgba(255, 255, 255, 0.01) 2px, rgba(255, 255, 255, 0.01) 3px
+    );
+}
+
+.prompt-line {
+  color: #7afd96;
+  margin-bottom: 4px;
+  font-size: 12px;
+}
+.prompt-user { color: #5fbcff; }
+.prompt-host { color: #c5c8c6; }
+.prompt-path { color: #ffd866; }
+.prompt-sym  { color: #e0e0e0; }
+.cmd { color: #ffffff; font-weight: 500; }
+
+h2 {
+  color: #66d9ef;
+  font-size: 14px;
+  margin: 20px 0 10px;
+  padding-bottom: 6px;
+  border-bottom: 1px dashed #333;
+  font-weight: 600;
+}
+
+h2::before {
+  content: "▎ ";
+  color: #66d9ef;
+}
+
+.status-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 10px 24px;
+  margin-bottom: 6px;
+}
+
+.status-row { display: flex; gap: 8px; }
+.status-key { color: #888; min-width: 90px; }
+.status-val { color: #e0e0e0; font-weight: 500; }
+
+.pill {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 3px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+}
+.pill.green  { background: rgba(39, 201, 63, 0.15); color: #50d76b; border: 1px solid rgba(39, 201, 63, 0.4); }
+.pill.red    { background: rgba(255, 95, 86, 0.15); color: #ff7e75; border: 1px solid rgba(255, 95, 86, 0.4); }
+.pill.yellow { background: rgba(255, 189, 46, 0.15); color: #ffd166; border: 1px solid rgba(255, 189, 46, 0.4); }
+.pill.cyan   { background: rgba(102, 217, 239, 0.15); color: #66d9ef; border: 1px solid rgba(102, 217, 239, 0.4); }
+
+table.simple {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  margin-top: 6px;
+}
+table.simple th {
+  text-align: left;
+  color: #888;
+  font-weight: normal;
+  padding: 6px 10px 6px 0;
+  border-bottom: 1px solid #2a2a2a;
+  font-size: 11px;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+table.simple td {
+  padding: 8px 10px 8px 0;
+  border-bottom: 1px solid #181818;
+  vertical-align: middle;
+}
+table.simple tr:hover td { background: #232323; }
+
+.bin-bar {
+  display: inline-flex;
+  height: 10px;
+  background: #2a2a2a;
+  border-radius: 2px;
+  overflow: hidden;
+  width: 100px;
+  position: relative;
+  vertical-align: middle;
+}
+.bin-bar-fill {
+  background: linear-gradient(90deg, #66d9ef, #a6e22e);
+  height: 100%;
+}
+.bin-bar-active {
+  position: absolute;
+  top: -2px; bottom: -2px;
+  width: 2px;
+  background: #ffd866;
+  box-shadow: 0 0 6px rgba(255, 216, 102, 0.7);
+}
+
+.pnl-pos { color: #50d76b; font-weight: 600; }
+.pnl-neg { color: #ff7e75; font-weight: 600; }
+.pnl-neutral { color: #888; }
+
+.decision-row td:first-child { color: #888; width: 70px; }
+.decision-row .type-badge {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 2px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+.decision-row .type-deploy        { background: rgba(80, 215, 107, 0.15); color: #50d76b; }
+.decision-row .type-no_deploy     { background: rgba(136, 136, 136, 0.15); color: #aaa; }
+.decision-row .type-close         { background: rgba(255, 126, 117, 0.15); color: #ff7e75; }
+.decision-row .type-claim         { background: rgba(255, 209, 102, 0.15); color: #ffd166; }
+.decision-row .type-treasury_shadow { background: rgba(102, 217, 239, 0.15); color: #66d9ef; }
+.decision-row .type-skip          { background: rgba(136, 136, 136, 0.10); color: #888; }
+.decision-row td .reason {
+  color: #ccc;
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  max-width: 600px;
+}
+
+#decisions-table { max-height: 350px; overflow-y: auto; }
+#decisions-table::-webkit-scrollbar { width: 8px; }
+#decisions-table::-webkit-scrollbar-track { background: #1e1e1e; }
+#decisions-table::-webkit-scrollbar-thumb { background: #3a3a3a; border-radius: 4px; }
+
+.chart-container {
+  margin-top: 14px;
+  background: #161616;
+  border: 1px solid #2a2a2a;
+  border-radius: 4px;
+  padding: 12px;
+  height: 200px;
+  position: relative;
+}
+.chart-container svg { width: 100%; height: 100%; }
+.chart-empty {
+  display: flex; align-items: center; justify-content: center;
+  height: 100%; color: #666; font-size: 12px;
+}
+
+.perf-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.perf-card {
+  background: #161616;
+  border: 1px solid #2a2a2a;
+  border-radius: 4px;
+  padding: 10px 12px;
+}
+.perf-label { color: #888; font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; }
+.perf-value { color: #fff; font-size: 18px; margin-top: 4px; font-weight: 600; }
+
+.footer-bar {
+  margin-top: 22px;
+  padding-top: 12px;
+  border-top: 1px dashed #2a2a2a;
+  color: #555;
+  font-size: 11px;
+  display: flex;
+  justify-content: space-between;
+}
+
+.cursor {
+  display: inline-block;
+  width: 7px; height: 13px;
+  background: #50d76b;
+  animation: blink 1s steps(2, start) infinite;
+  vertical-align: text-bottom;
+  margin-left: 4px;
+}
+@keyframes blink { to { visibility: hidden; } }
+
+.loading { color: #555; font-style: italic; }
+.empty-state { color: #555; font-size: 12px; padding: 10px 0; }
+
+a { color: #66d9ef; text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+@media (max-width: 700px) {
+  body { padding: 10px; font-size: 12px; }
+  .terminal-body { padding: 18px 16px; }
+  table.simple { font-size: 11px; }
+}
+</style>
+</head>
+<body>
+<div class="terminal-window">
+  <div class="terminal-header">
+    <div class="traffic-lights">
+      <span class="light red"></span>
+      <span class="light yellow"></span>
+      <span class="light green"></span>
+    </div>
+    <div class="terminal-title">blackdelta@solana — autonomous-lp — 80×30</div>
+  </div>
+
+  <div class="terminal-body">
+    <div class="prompt-line">
+      <span class="prompt-user">deployer</span><span class="prompt-sym">@</span><span class="prompt-host">srv1663537</span><span class="prompt-sym">:</span><span class="prompt-path">~/blackdelta</span><span class="prompt-sym">$ </span><span class="cmd">./bd --watch</span>
+    </div>
+
+    <h2>System Status</h2>
+    <div id="status-section" class="status-grid">
+      <div class="loading">Loading status...</div>
+    </div>
+
+    <h2>Open Positions</h2>
+    <div id="positions-section">
+      <div class="loading">Loading positions...</div>
+    </div>
+
+    <h2>Recent Decisions</h2>
+    <div id="decisions-table">
+      <div class="loading">Loading decisions...</div>
+    </div>
+
+    <h2>Performance</h2>
+    <div id="perf-section">
+      <div class="loading">Loading performance...</div>
+    </div>
+
+    <div class="footer-bar">
+      <span id="last-update">Last update: —</span>
+      <span>refresh: <span id="refresh-countdown">15</span>s · <a href="#" onclick="refreshAll(); return false;">force refresh</a></span>
+    </div>
+  </div>
+</div>
+
+<script>
+const REFRESH_INTERVAL_MS = 15000;
+let countdown = 15;
+
+function fmt(n, decimals = 2) {
+  if (n == null || !isFinite(n)) return '—';
+  return Number(n).toFixed(decimals);
+}
+function fmtUsd(n) {
+  if (n == null || !isFinite(n)) return '—';
+  return '$' + Number(n).toFixed(2);
+}
+function pnlClass(n) {
+  if (n == null || !isFinite(n)) return 'pnl-neutral';
+  return n > 0 ? 'pnl-pos' : n < 0 ? 'pnl-neg' : 'pnl-neutral';
+}
+function shortAddr(a) {
+  if (!a || a.length < 10) return a || '—';
+  return a.slice(0, 6) + '…' + a.slice(-4);
+}
+function timeFmt(ts) {
+  try { return new Date(ts).toLocaleTimeString('en-GB'); } catch { return ts; }
+}
+function ago(ts) {
+  const ms = Date.now() - new Date(ts).getTime();
+  const s = Math.floor(ms / 1000);
+  if (s < 60) return s + 's';
+  const m = Math.floor(s / 60);
+  if (m < 60) return m + 'm';
+  const h = Math.floor(m / 60);
+  return h + 'h ' + (m % 60) + 'm';
+}
+
+async function fetchJson(path) {
+  try {
+    const r = await fetch(path, { credentials: 'same-origin' });
+    if (!r.ok) throw new Error(r.status);
+    return await r.json();
+  } catch (e) {
+    return null;
+  }
+}
+
+async function renderStatus() {
+  const data = await fetchJson('/api/status');
+  const el = document.getElementById('status-section');
+  if (!data) { el.innerHTML = '<div class="empty-state">⚠ Failed to fetch status</div>'; return; }
+
+  const modePill = data.mode === 'LIVE'
+    ? '<span class="pill red">LIVE</span>'
+    : '<span class="pill yellow">DRY_RUN</span>';
+  const statusPill = data.online
+    ? '<span class="pill green">ONLINE</span>'
+    : '<span class="pill red">OFFLINE</span>';
+
+  el.innerHTML = `
+    <div class="status-row"><span class="status-key">Status:</span><span class="status-val">${statusPill}</span></div>
+    <div class="status-row"><span class="status-key">Mode:</span><span class="status-val">${modePill}</span></div>
+    <div class="status-row"><span class="status-key">Uptime:</span><span class="status-val">${data.uptime || '—'}</span></div>
+    <div class="status-row"><span class="status-key">Memory:</span><span class="status-val">${data.memMb || '—'} MB</span></div>
+    <div class="status-row"><span class="status-key">Wallet:</span><span class="status-val">${shortAddr(data.wallet)}</span></div>
+    <div class="status-row"><span class="status-key">Balance:</span><span class="status-val">${fmt(data.balanceSol, 4)} SOL ${data.balanceUsd ? '<span class="pnl-neutral">(' + fmtUsd(data.balanceUsd) + ')</span>' : ''}</span></div>
+    <div class="status-row"><span class="status-key">Open pos:</span><span class="status-val">${data.openPositions || 0} / ${data.maxPositions || 3}</span></div>
+    <div class="status-row"><span class="status-key">Total PnL:</span><span class="status-val ${pnlClass(data.totalPnlUsd)}">${data.totalPnlUsd != null ? fmtUsd(data.totalPnlUsd) : '—'}</span></div>
+  `;
+}
+
+async function renderPositions() {
+  const data = await fetchJson('/api/positions');
+  const el = document.getElementById('positions-section');
+  if (!data) { el.innerHTML = '<div class="empty-state">⚠ Failed to fetch positions</div>'; return; }
+  if (!data.positions || data.positions.length === 0) {
+    el.innerHTML = '<div class="empty-state">No open positions.</div>'; return;
+  }
+
+  let html = '<table class="simple"><thead><tr><th>Pool</th><th>Amount</th><th>Value</th><th>PnL</th><th>Fees</th><th>Range</th><th>Age</th><th>Status</th></tr></thead><tbody>';
+  for (const p of data.positions) {
+    const pnlPct = p.pnl_pct;
+    const lower = p.lower_bin, upper = p.upper_bin, active = p.active_bin;
+    const span = upper - lower;
+    const offset = span > 0 ? Math.max(0, Math.min(100, ((active - lower) / span) * 100)) : 50;
+    const inRange = p.in_range === false ? '<span class="pill red">OOR</span>' : '<span class="pill green">IN</span>';
+
+    html += `<tr>
+      <td><strong>${p.pair || p.pool_name || shortAddr(p.pool)}</strong></td>
+      <td>${fmt(p.amount_sol, 3)} SOL</td>
+      <td>${fmtUsd(p.total_value_usd)}</td>
+      <td class="${pnlClass(pnlPct)}">${pnlPct != null ? (pnlPct > 0 ? '+' : '') + fmt(pnlPct, 2) + '%' : '—'}<br><span class="${pnlClass(p.pnl_usd)}" style="font-size:11px">${p.pnl_usd != null ? (p.pnl_usd > 0 ? '+' : '') + fmtUsd(p.pnl_usd) : ''}</span></td>
+      <td>${fmtUsd(p.unclaimed_fees_usd)}</td>
+      <td><div class="bin-bar"><div class="bin-bar-fill" style="width:100%"></div><div class="bin-bar-active" style="left:${offset}%"></div></div><br><span style="font-size:10px;color:#666">${lower}→${upper}</span></td>
+      <td>${ago(p.deployed_at || p.deployedAt || Date.now() - (p.age_minutes || 0)*60000)}</td>
+      <td>${inRange}</td>
+    </tr>`;
+  }
+  html += '</tbody></table>';
+  el.innerHTML = html;
+}
+
+async function renderDecisions() {
+  const data = await fetchJson('/api/decisions');
+  const el = document.getElementById('decisions-table');
+  if (!data) { el.innerHTML = '<div class="empty-state">⚠ Failed to fetch decisions</div>'; return; }
+  if (!data.decisions || data.decisions.length === 0) {
+    el.innerHTML = '<div class="empty-state">No decisions yet.</div>'; return;
+  }
+
+  let html = '<table class="simple"><thead><tr><th>Time</th><th>Type</th><th>Pool</th><th>Reason</th></tr></thead><tbody>';
+  for (const d of data.decisions.slice(0, 25)) {
+    html += `<tr class="decision-row">
+      <td>${timeFmt(d.ts)}</td>
+      <td><span class="type-badge type-${d.type || 'unknown'}">${d.type || '?'}</span></td>
+      <td>${d.pool_name || (d.pool ? shortAddr(d.pool) : '—')}</td>
+      <td><div class="reason">${(d.reason || d.summary || '').replace(/</g, '&lt;')}</div></td>
+    </tr>`;
+  }
+  html += '</tbody></table>';
+  el.innerHTML = html;
+}
+
+async function renderPerformance() {
+  const data = await fetchJson('/api/performance');
+  const el = document.getElementById('perf-section');
+  if (!data) { el.innerHTML = '<div class="empty-state">⚠ Failed to fetch performance</div>'; return; }
+
+  const perf = data.performance || [];
+  const cards = `
+    <div class="perf-grid">
+      <div class="perf-card"><div class="perf-label">Closed</div><div class="perf-value">${perf.length}</div></div>
+      <div class="perf-card"><div class="perf-label">Win Rate</div><div class="perf-value">${data.winRatePct != null ? data.winRatePct + '%' : '—'}</div></div>
+      <div class="perf-card"><div class="perf-label">Total PnL</div><div class="perf-value ${pnlClass(data.totalPnlUsd)}">${data.totalPnlUsd != null ? fmtUsd(data.totalPnlUsd) : '—'}</div></div>
+      <div class="perf-card"><div class="perf-label">Avg PnL %</div><div class="perf-value ${pnlClass(data.avgPnlPct)}">${data.avgPnlPct != null ? fmt(data.avgPnlPct, 2) + '%' : '—'}</div></div>
+      <div class="perf-card"><div class="perf-label">Lessons</div><div class="perf-value">${data.lessonsCount || 0}</div></div>
+    </div>
+  `;
+
+  // Build SVG equity curve from cumulative PnL
+  let chart = '<div class="chart-empty">No closed positions yet — chart appears after first close.</div>';
+  if (perf.length > 1) {
+    const sorted = [...perf].sort((a, b) => new Date(a.recorded_at) - new Date(b.recorded_at));
+    let cum = 0;
+    const points = sorted.map(p => { cum += (p.pnl_usd || 0); return cum; });
+    const max = Math.max(0, ...points), min = Math.min(0, ...points);
+    const range = max - min || 1;
+    const w = 100, h = 100;
+    const xs = points.map((_, i) => (i / (points.length - 1)) * w);
+    const ys = points.map(v => h - ((v - min) / range) * h);
+    const path = xs.map((x, i) => (i === 0 ? 'M' : 'L') + x.toFixed(2) + ' ' + ys[i].toFixed(2)).join(' ');
+    const zeroLine = h - ((0 - min) / range) * h;
+    chart = `<svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">
+      <line x1="0" y1="${zeroLine.toFixed(2)}" x2="${w}" y2="${zeroLine.toFixed(2)}" stroke="#444" stroke-dasharray="1,1" stroke-width="0.2"/>
+      <path d="${path}" fill="none" stroke="#50d76b" stroke-width="0.8" vector-effect="non-scaling-stroke"/>
+      <path d="${path} L${w} ${h} L0 ${h} Z" fill="rgba(80, 215, 107, 0.1)"/>
+    </svg>`;
+  }
+
+  el.innerHTML = cards + '<div class="chart-container">' + chart + '</div>';
+}
+
+async function refreshAll() {
+  await Promise.all([renderStatus(), renderPositions(), renderDecisions(), renderPerformance()]);
+  document.getElementById('last-update').textContent = 'Last update: ' + new Date().toLocaleTimeString();
+  countdown = REFRESH_INTERVAL_MS / 1000;
+}
+
+setInterval(() => {
+  countdown--;
+  document.getElementById('refresh-countdown').textContent = countdown;
+  if (countdown <= 0) refreshAll();
+}, 1000);
+
+refreshAll();
+</script>
+</body>
+</html>

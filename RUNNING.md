@@ -421,6 +421,93 @@ Output: Report JSON dengan `reportHash`. Run dua kali → hash sama = determinis
 
 ---
 
+## 7.5. Web Dashboard (Optional)
+
+Bot ini ada built-in HTTP dashboard yang tampilin status + positions + decisions + PnL chart dengan tema macOS Terminal. Jalan di port lokal, dirilis ke domain via Cloudflare.
+
+### Setup
+
+1. **Tambah ke `.env`:**
+
+```bash
+WEB_ENABLED=true
+WEB_HOST=127.0.0.1            # localhost only, di-proxy via Cloudflare
+WEB_PORT=3030                  # pilih port yang free di VPS (cek dengan `ss -tlnp`)
+WEB_PASSWORD=ganti_jadi_password_random_panjang
+```
+
+> ⚠️ **Generate password kuat**: `openssl rand -base64 24` atau pakai password manager lo. Jangan password lemah — dashboard expose wallet balance + position info.
+
+2. **Restart bot:**
+
+```bash
+pm2 restart blackdelta --update-env
+pm2 logs blackdelta --lines 5 --nostream | grep WEB
+# Expected: [WEB] dashboard listening on http://127.0.0.1:3030 (password-protected)
+```
+
+3. **Setup Cloudflare DNS + proxy:**
+
+a. Di Cloudflare Dashboard → pilih domain lo:
+   - DNS → Add record:
+     - **Type**: `A`
+     - **Name**: `bot` (akan jadi `bot.yourdomain.com`) atau `@` untuk root domain
+     - **IPv4 address**: IP VPS lo (cek `curl ifconfig.me`)
+     - **Proxy status**: **Proxied** (orange cloud ON) ← penting buat SSL gratis
+
+b. SSL/TLS settings → `Full` mode
+
+c. Network → Tunggu 1-5 menit DNS propagation
+
+4. **Setup nginx reverse proxy di VPS** (port 80 → 3030):
+
+```bash
+sudo apt install nginx
+sudo nano /etc/nginx/sites-available/blackdelta
+```
+
+Paste:
+```nginx
+server {
+  listen 80;
+  server_name bot.yourdomain.com;
+
+  location / {
+    proxy_pass http://127.0.0.1:3030;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+  }
+}
+```
+
+```bash
+sudo ln -s /etc/nginx/sites-available/blackdelta /etc/nginx/sites-enabled/
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+5. **Buka dashboard:**
+
+Buka `https://bot.yourdomain.com` di browser → browser tanya user/password → masukin `user` (apa aja) + password yang lo set di `.env`.
+
+### Endpoints
+
+| URL | Konten |
+|---|---|
+| `/` | Dashboard HTML |
+| `/api/status` | JSON: wallet, mode, uptime |
+| `/api/positions` | JSON: open positions + live PnL |
+| `/api/decisions` | JSON: 25 keputusan terakhir |
+| `/api/performance` | JSON: closed positions, win rate, lessons |
+| `/healthz` | JSON `{ok: true}` — buat uptime monitor |
+
+### Disable Dashboard
+
+Set `WEB_ENABLED=false` di `.env` → restart. Server nggak listen.
+
+---
+
 ## 8. Troubleshooting
 
 | Symptom | Cek | Fix |

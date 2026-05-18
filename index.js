@@ -35,6 +35,7 @@ import { getWeightsSummary } from "./signal-weights.js";
 import { bootstrapHiveMind, ensureAgentId, getHiveMindPullMode, isHiveMindEnabled, pullHiveMindLessons, pullHiveMindPresets, registerHiveMindAgent, startHiveMindBackgroundSync } from "./hivemind.js";
 import { appendDecision } from "./decision-log.js";
 import { wsSubscriber } from "./ws-subscriber.js";
+import * as webServer from "./web-server.js";
 
 const entrypointPath = process.env.pm_exec_path || process.argv[1];
 const isMain = entrypointPath
@@ -874,6 +875,9 @@ Summarize the current portfolio health, total fees earned, and performance of al
   // Phase 4: start WS subscriber + watch existing positions.
   // No-op when config.subscriptions.enabled === false.
   startWsSubscriber().catch((err) => log("ws_error", `WS startup failed: ${err.message}`));
+
+  // Web dashboard (no-op if config.web.enabled = false)
+  try { webServer.start(); } catch (err) { log("web_error", `dashboard start failed: ${err.message}`); }
 }
 
 async function startWsSubscriber() {
@@ -932,6 +936,7 @@ async function shutdown(signal) {
   stopPolling();
   stopCronJobs();
   await wsSubscriber.stop().catch(() => {});
+  await webServer.stop().catch(() => {});
 
   const positions = await withTimeout(
     getMyPositions({ force: true, silent: true }).catch((error) => {
