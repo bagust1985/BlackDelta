@@ -12,14 +12,33 @@
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
+import { execSync } from "child_process";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.join(__dirname, "..");
 
-// ─── Fix 1: Patch anchor's package.json exports ──────────────────────────────
-const anchorPkgPath = path.join(root, "node_modules/@coral-xyz/anchor/package.json");
+// ─── Resolve anchor location (works for npm hoisted + pnpm nested) ───────────
+function findAnchorPkg() {
+  const hoisted = path.join(root, "node_modules/@coral-xyz/anchor/package.json");
+  if (fs.existsSync(hoisted)) return hoisted;
+  // pnpm: locate at .pnpm/<hash>/node_modules/@coral-xyz/anchor/package.json
+  try {
+    const out = execSync(
+      `find ${root}/node_modules/.pnpm -maxdepth 6 -path "*@coral-xyz/anchor/package.json" 2>/dev/null`,
+      { encoding: "utf8" }
+    ).trim().split("\n").filter(Boolean);
+    if (out.length) return out[0];
+  } catch {}
+  return null;
+}
+
+const anchorPkgPath = findAnchorPkg();
+if (!anchorPkgPath) {
+  console.log("Skip patch-anchor: @coral-xyz/anchor not found yet (postinstall may have run before deps installed)");
+  process.exit(0);
+}
 const anchorPkg = JSON.parse(fs.readFileSync(anchorPkgPath, "utf8"));
-const anchorUtils = path.join(root, "node_modules/@coral-xyz/anchor/dist/cjs/utils");
+const anchorUtils = path.join(path.dirname(anchorPkgPath), "dist/cjs/utils");
 
 if (!anchorPkg.exports) {
   const dirs = fs.readdirSync(anchorUtils, { withFileTypes: true })
@@ -49,9 +68,21 @@ if (!anchorPkg.exports) {
 }
 
 // ─── Fix 2: Patch DLMM index.mjs bare directory imports ──────────────────────
-const dlmmMjs = path.join(root, "node_modules/@meteora-ag/dlmm/dist/index.mjs");
+function findDlmmIndex() {
+  const hoisted = path.join(root, "node_modules/@meteora-ag/dlmm/dist/index.mjs");
+  if (fs.existsSync(hoisted)) return hoisted;
+  try {
+    const out = execSync(
+      `find ${root}/node_modules/.pnpm -maxdepth 7 -path "*@meteora-ag/dlmm/dist/index.mjs" 2>/dev/null`,
+      { encoding: "utf8" }
+    ).trim().split("\n").filter(Boolean);
+    if (out.length) return out[0];
+  } catch {}
+  return null;
+}
+const dlmmMjs = findDlmmIndex();
 
-if (fs.existsSync(dlmmMjs)) {
+if (dlmmMjs && fs.existsSync(dlmmMjs)) {
   let src = fs.readFileSync(dlmmMjs, "utf8");
   const original = src;
 
