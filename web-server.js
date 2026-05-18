@@ -114,9 +114,29 @@ async function handlePositions() {
   } catch (e) {
     return { positions: [], error: e.message };
   }
+
+  // Merge with state.json so deploy-time fields (amount_sol, deployed_at,
+  // bin range, etc.) show up alongside live API metrics.
+  const state = readJsonSafe(STATE, { positions: {} });
+  const tracked = state.positions || {};
+  const merged = (positions?.positions || []).map((p) => {
+    const t = tracked[p.position];
+    if (!t) return p;
+    return {
+      ...p,
+      amount_sol:        p.amount_sol        ?? t.amount_sol        ?? null,
+      initial_value_usd: p.initial_value_usd ?? t.initial_value_usd ?? null,
+      deployed_at:       p.deployed_at       ?? t.deployed_at       ?? null,
+      strategy:          p.strategy          ?? t.strategy          ?? null,
+      // Use tracked bin_range as fallback if API doesn't expose lower/upper.
+      lower_bin: p.lower_bin ?? t.bin_range?.min ?? null,
+      upper_bin: p.upper_bin ?? t.bin_range?.max ?? null,
+    };
+  });
+
   return {
-    positions: positions?.positions || [],
-    total: positions?.total_positions || 0,
+    positions: merged,
+    total: positions?.total_positions || merged.length,
     timestamp: new Date().toISOString(),
   };
 }
