@@ -172,22 +172,6 @@ table.simple tr:hover td { background: #232323; }
 .pnl-neg { color: #ff7e75; font-weight: 600; }
 .pnl-neutral { color: #888; }
 
-.pnl-cell {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  line-height: 1.25;
-}
-.pnl-primary {
-  font-size: 13px;
-  font-weight: 600;
-}
-.pnl-secondary {
-  font-size: 11px;
-  opacity: 0.65;
-  margin-top: 1px;
-}
-
 .decision-row td:first-child { color: #888; width: 70px; }
 .decision-row .type-badge {
   display: inline-block;
@@ -597,10 +581,7 @@ async function renderPositions() {
       <td data-label="Pool"><strong>${p.pair || p.pool_name || shortAddr(p.pool)}</strong></td>
       <td data-label="Amount">${fmt(p.amount_sol, 3)} SOL</td>
       <td data-label="Value">${fmtUsd(p.total_value_usd)}</td>
-      <td data-label="PnL"><div class="pnl-cell">
-        <div class="${pnlClass(pnlPct)} pnl-primary">${pnlValue}</div>
-        <div class="${pnlClass(p.pnl_usd)} pnl-secondary">${pnlUsdValue}</div>
-      </div></td>
+      <td data-label="PnL" class="${pnlClass(pnlPct)}"><span>${pnlValue}</span> <span class="${pnlClass(p.pnl_usd)}" style="font-size:11px">${pnlUsdValue}</span></td>
       <td data-label="Fees">${fmtUsd(p.unclaimed_fees_usd)}</td>
       <td data-label="Range"><div class="bin-bar"><div class="bin-bar-fill" style="width:100%"></div><div class="bin-bar-active" style="left:${offset}%"></div></div> <span style="font-size:10px;color:#666;margin-left:4px">${lower}→${upper}</span></td>
       <td data-label="Age">${ago(p.deployed_at || p.deployedAt || Date.now() - (p.age_minutes || 0)*60000)}</td>
