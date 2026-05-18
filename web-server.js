@@ -143,6 +143,56 @@ function handlePerformance() {
     totalPnlUsd: perf.length ? Math.round(totalPnl * 100) / 100 : null,
     avgPnlPct: avgPnlPct != null ? Math.round(avgPnlPct * 100) / 100 : null,
     lessonsCount: (data.lessons || []).length,
+    calendar: buildCalendar(perf, 12),
+  };
+}
+
+/**
+ * Aggregate closed-position PnL into a daily grid for the last N weeks.
+ * Days with no trades come back with pnlUsd=0, count=0 so the frontend
+ * can render every cell in the heatmap without conditional placeholders.
+ */
+function buildCalendar(perf, weeks = 12) {
+  const end = new Date();
+  end.setUTCHours(0, 0, 0, 0);
+  const totalDays = weeks * 7;
+  const start = new Date(end);
+  start.setUTCDate(end.getUTCDate() - totalDays + 1);
+
+  const byDay = new Map();
+  for (const p of perf) {
+    const d = new Date(p.recorded_at);
+    if (Number.isNaN(d.getTime())) continue;
+    const key = d.toISOString().slice(0, 10);
+    const entry = byDay.get(key) || { pnlUsd: 0, count: 0 };
+    entry.pnlUsd += Number(p.pnl_usd) || 0;
+    entry.count += 1;
+    byDay.set(key, entry);
+  }
+
+  const days = [];
+  for (let i = 0; i < totalDays; i++) {
+    const d = new Date(start);
+    d.setUTCDate(start.getUTCDate() + i);
+    const key = d.toISOString().slice(0, 10);
+    const entry = byDay.get(key) || { pnlUsd: 0, count: 0 };
+    days.push({
+      date: key,
+      pnlUsd: Math.round(entry.pnlUsd * 100) / 100,
+      count: entry.count,
+      dow: d.getUTCDay(),
+    });
+  }
+
+  const maxAbs = days.reduce((m, x) => Math.max(m, Math.abs(x.pnlUsd)), 0) || 1;
+
+  return {
+    weeks,
+    totalDays,
+    startDate: days[0].date,
+    endDate: days[days.length - 1].date,
+    days,
+    maxAbsPnlUsd: Math.round(maxAbs * 100) / 100,
   };
 }
 

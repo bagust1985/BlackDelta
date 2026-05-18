@@ -260,6 +260,82 @@ table.simple tr:hover td { background: #232323; }
 a { color: #66d9ef; text-decoration: none; }
 a:hover { text-decoration: underline; }
 
+/* ─── PnL Calendar Heatmap ─────────────────────────── */
+.calendar-wrap {
+  background: #161616;
+  border: 1px solid #2a2a2a;
+  border-radius: 4px;
+  padding: 12px 14px;
+}
+.calendar-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 11px;
+  color: #888;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.calendar-meta .legend {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.legend-cell {
+  width: 10px; height: 10px;
+  border-radius: 2px;
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  display: inline-block;
+}
+.calendar-grid {
+  display: grid;
+  grid-template-rows: repeat(7, 12px);
+  grid-auto-flow: column;
+  grid-auto-columns: 12px;
+  gap: 3px;
+  overflow-x: auto;
+}
+.cal-cell {
+  width: 12px; height: 12px;
+  border-radius: 2px;
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  background: #1e1e1e;
+  position: relative;
+  cursor: default;
+}
+.cal-cell.pos[data-pnl-tier="1"] { background: rgba(80, 215, 107, 0.25); }
+.cal-cell.pos[data-pnl-tier="2"] { background: rgba(80, 215, 107, 0.5); }
+.cal-cell.pos[data-pnl-tier="3"] { background: rgba(80, 215, 107, 0.75); }
+.cal-cell.pos[data-pnl-tier="4"] { background: #50d76b; }
+.cal-cell.neg[data-pnl-tier="1"] { background: rgba(255, 95, 86, 0.25); }
+.cal-cell.neg[data-pnl-tier="2"] { background: rgba(255, 95, 86, 0.5); }
+.cal-cell.neg[data-pnl-tier="3"] { background: rgba(255, 95, 86, 0.75); }
+.cal-cell.neg[data-pnl-tier="4"] { background: #ff5f56; }
+.cal-cell:hover {
+  outline: 1px solid #66d9ef;
+  outline-offset: 1px;
+  z-index: 2;
+}
+.cal-tooltip {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: #2a2a2a;
+  border: 1px solid #3a3a3a;
+  padding: 4px 8px;
+  border-radius: 3px;
+  font-size: 10px;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.1s;
+  z-index: 10;
+  color: #e0e0e0;
+}
+.cal-cell:hover .cal-tooltip { opacity: 1; }
+
 /* ─── Tablet (≤ 900px) ─────────────────────────────── */
 @media (max-width: 900px) {
   body { padding: 10px; }
@@ -347,6 +423,15 @@ a:hover { text-decoration: underline; }
 
   .chart-container { height: 160px; padding: 8px; }
   .footer-bar { flex-direction: column; gap: 4px; font-size: 10px; }
+
+  /* Calendar shrinks on mobile */
+  .calendar-grid {
+    grid-template-rows: repeat(7, 10px);
+    grid-auto-columns: 10px;
+    gap: 2px;
+  }
+  .cal-cell { width: 10px; height: 10px; }
+  .calendar-meta { font-size: 10px; }
 }
 
 /* ─── Extra small (≤ 380px) ────────────────────────── */
@@ -388,6 +473,11 @@ a:hover { text-decoration: underline; }
     <h2>Recent Decisions</h2>
     <div id="decisions-table">
       <div class="loading">Loading decisions...</div>
+    </div>
+
+    <h2>PnL Calendar</h2>
+    <div id="calendar-section">
+      <div class="loading">Loading calendar...</div>
     </div>
 
     <h2>Performance</h2>
@@ -523,6 +613,58 @@ async function renderDecisions() {
   el.innerHTML = html;
 }
 
+async function renderCalendar() {
+  const data = await fetchJson('/api/performance');
+  const el = document.getElementById('calendar-section');
+  if (!data?.calendar) {
+    el.innerHTML = '<div class="empty-state">No calendar data</div>';
+    return;
+  }
+  const cal = data.calendar;
+  const max = cal.maxAbsPnlUsd || 1;
+
+  function tier(pnl) {
+    if (!pnl) return 0;
+    const r = Math.abs(pnl) / max;
+    if (r > 0.75) return 4;
+    if (r > 0.5)  return 3;
+    if (r > 0.25) return 2;
+    return 1;
+  }
+  function sign(pnl) {
+    return pnl > 0 ? 'pos' : pnl < 0 ? 'neg' : '';
+  }
+
+  const cells = cal.days.map((d) => {
+    const s = sign(d.pnlUsd);
+    const t = tier(d.pnlUsd);
+    const label = d.count
+      ? `${d.date}: ${d.pnlUsd > 0 ? '+' : ''}$${d.pnlUsd.toFixed(2)} (${d.count} close${d.count > 1 ? 's' : ''})`
+      : `${d.date}: no trade`;
+    return `<div class="cal-cell ${s}" data-pnl-tier="${t}" data-date="${d.date}">
+      <span class="cal-tooltip">${label}</span>
+    </div>`;
+  }).join('');
+
+  el.innerHTML = `
+    <div class="calendar-wrap">
+      <div class="calendar-meta">
+        <span>${cal.startDate} → ${cal.endDate} · ${cal.weeks} weeks · max |$| ${cal.maxAbsPnlUsd.toFixed(2)}</span>
+        <span class="legend">
+          loss
+          <span class="legend-cell" style="background:#ff5f56"></span>
+          <span class="legend-cell" style="background:rgba(255,95,86,0.5)"></span>
+          <span class="legend-cell" style="background:#1e1e1e"></span>
+          <span class="legend-cell" style="background:rgba(80,215,107,0.5)"></span>
+          <span class="legend-cell" style="background:#50d76b"></span>
+          profit
+        </span>
+      </div>
+      <div class="calendar-grid">${cells}</div>
+    </div>
+  `;
+}
+
 async function renderPerformance() {
   const data = await fetchJson('/api/performance');
   const el = document.getElementById('perf-section');
@@ -563,7 +705,7 @@ async function renderPerformance() {
 }
 
 async function refreshAll() {
-  await Promise.all([renderStatus(), renderPositions(), renderDecisions(), renderPerformance()]);
+  await Promise.all([renderStatus(), renderPositions(), renderDecisions(), renderCalendar(), renderPerformance()]);
   document.getElementById('last-update').textContent = 'Last update: ' + new Date().toLocaleTimeString();
   countdown = REFRESH_INTERVAL_MS / 1000;
 }
