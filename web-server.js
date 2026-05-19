@@ -251,6 +251,27 @@ function serveStaticHtml(res) {
   }
 }
 
+/**
+ * Serve a whitelisted static asset from PUBLIC_DIR with caching headers.
+ * Routes map each public URL to its filename explicitly (no directory
+ * traversal possible).
+ */
+function serveStaticAsset(res, filename, contentType) {
+  const filepath = path.join(PUBLIC_DIR, filename);
+  if (!filepath.startsWith(PUBLIC_DIR + path.sep) || !fs.existsSync(filepath)) {
+    res.writeHead(404, { "content-type": "text/plain" });
+    res.end("404 not found");
+    return;
+  }
+  const stat = fs.statSync(filepath);
+  res.writeHead(200, {
+    "content-type": contentType,
+    "content-length": stat.size,
+    "cache-control": "public, max-age=86400",
+  });
+  fs.createReadStream(filepath).pipe(res);
+}
+
 // ────────────────────────────────────────────
 // Request dispatcher
 // ────────────────────────────────────────────
@@ -272,6 +293,10 @@ async function handleRequest(req, res) {
       case "/":
       case "/index.html":
         return serveStaticHtml(res);
+      case "/blackdelta.png":
+      case "/favicon.png":
+      case "/apple-touch-icon.png":
+        return serveStaticAsset(res, "blackdelta.png", "image/png");
       case "/api/status":
         return json(res, 200, await handleStatus());
       case "/api/positions":
