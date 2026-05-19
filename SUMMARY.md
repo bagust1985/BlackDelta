@@ -16,7 +16,7 @@
 | Live mainnet deployment | ✅ Live | wallet `GTyad6...c3ia`, modal 1 SOL |
 | First profitable close | ✅ Done | +$1.71 (RoyalPop-SOL, 2026-05-18) |
 | Total realized PnL | ✅ +$6.37 | 6 closes across 2 days |
-| Public dashboard | ✅ Live | `selsiscan.online` (Cloudflare + nginx + self-signed) |
+| Public dashboard | ✅ Live | `blackdelta.cc` (Cloudflare + nginx + self-signed) |
 | Production process | ✅ Live | PM2 process `blackdelta` (auto-restart) |
 
 ---
@@ -164,7 +164,7 @@ public/dashboard.html      — Single-file HTML + CSS + JS
 - Equity curve SVG chart
 - macOS Terminal aesthetic (traffic lights, monospace, dark theme)
 
-**Live**: https://selsiscan.online
+**Live**: https://blackdelta.cc
 
 ---
 
@@ -356,7 +356,7 @@ Closed positions   : 6 (5 on May 18, 1 on May 19)
 Realized PnL       : +$6.37
 Win rate           : Not yet meaningful (n too small)
 LLM cost (est.)    : DeepSeek ~$0.50/day, Gemini ~$0/day (free tier)
-Dashboard          : https://selsiscan.online (public, no auth)
+Dashboard          : https://blackdelta.cc (public, no auth)
 GitHub             : https://github.com/bagust1985/BlackDelta (branch blackdelta = default)
 ```
 
@@ -367,7 +367,7 @@ GitHub             : https://github.com/bagust1985/BlackDelta (branch blackdelta
 Dalam 4 hari (2026-05-15 → 2026-05-19):
 - Implementasi Phase 1-6 BlackDelta PRD lengkap (DEX abstraction, treasury allocator, WebSocket, backtest, semantic memory, multi-agent orchestrator)
 - Per-role LLM provider routing (DeepSeek + Gemini paralel)
-- Web dashboard dengan macOS Terminal theme di `selsiscan.online`
+- Web dashboard dengan macOS Terminal theme di `blackdelta.cc`
 - PnL calendar heatmap (12-week forward-looking, GitHub-style)
 - Mobile responsive
 - CLI monitoring scripts
