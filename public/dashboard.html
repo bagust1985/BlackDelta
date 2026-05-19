@@ -497,12 +497,26 @@ a:hover { text-decoration: underline; }
   }
   .calendar-meta { font-size: 10px; }
 
-  /* Mobile cells too small for in-cell text — hide labels, keep tooltip */
+  /* Mobile: hide date/month/day labels (too small) but KEEP PnL value */
   .cal-cell .cal-date,
   .cal-cell .cal-month,
   .cal-cell .cal-day,
-  .cal-cell .cal-pnl,
   .cal-cell .cal-count { display: none; }
+  .cal-cell .cal-pnl {
+    font-size: 9px;
+    font-weight: 700;
+    padding: 0 1px;
+    text-shadow: 0 1px 1px rgba(0,0,0,0.6);
+    line-height: 1;
+  }
+}
+
+/* Extra-small phones: even more compact, hide $ sign */
+@media (max-width: 380px) {
+  .cal-cell .cal-pnl {
+    font-size: 8px;
+    letter-spacing: -0.5px;
+  }
 }
 
 /* ─── Extra small (≤ 380px) ────────────────────────── */
