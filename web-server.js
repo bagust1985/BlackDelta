@@ -168,16 +168,37 @@ function handlePerformance() {
 }
 
 /**
- * Aggregate closed-position PnL into a daily grid for the last N weeks.
- * Days with no trades come back with pnlUsd=0, count=0 so the frontend
- * can render every cell in the heatmap without conditional placeholders.
+ * Aggregate closed-position PnL into a daily grid covering N weeks
+ * starting from the first trade date (forward-looking calendar).
+ *
+ * Layout: Monday-aligned weeks. Days array fills column-first so the
+ * frontend's grid-auto-flow:column lays out row0=Mon, row1=Tue,
+ * ..., row6=Sun across 12 columns.
+ *
+ * Future days (after today) are marked isFuture for fade-out styling.
  */
 function buildCalendar(perf, weeks = 12) {
-  const end = new Date();
-  end.setUTCHours(0, 0, 0, 0);
+  // Find earliest trade as the seed. Fall back to today.
+  let earliestMs = Number.POSITIVE_INFINITY;
+  for (const p of perf) {
+    const t = new Date(p.recorded_at).getTime();
+    if (Number.isFinite(t) && t < earliestMs) earliestMs = t;
+  }
+  const seed = new Date(Number.isFinite(earliestMs) ? earliestMs : Date.now());
+  seed.setUTCHours(0, 0, 0, 0);
+
+  // Align to Monday: 0=Sun → -6, 1=Mon → 0, 2=Tue → -1, etc.
+  const dow = seed.getUTCDay();
+  const offsetToMonday = dow === 0 ? -6 : 1 - dow;
+  seed.setUTCDate(seed.getUTCDate() + offsetToMonday);
+  const startDate = seed;
+
+  // Today midnight UTC for isToday / isFuture markers
+  const todayUtc = new Date();
+  todayUtc.setUTCHours(0, 0, 0, 0);
+  const todayKey = todayUtc.toISOString().slice(0, 10);
+
   const totalDays = weeks * 7;
-  const start = new Date(end);
-  start.setUTCDate(end.getUTCDate() - totalDays + 1);
 
   const byDay = new Map();
   for (const p of perf) {
@@ -190,10 +211,11 @@ function buildCalendar(perf, weeks = 12) {
     byDay.set(key, entry);
   }
 
+  // Forward 84 days from startDate
   const days = [];
   for (let i = 0; i < totalDays; i++) {
-    const d = new Date(start);
-    d.setUTCDate(start.getUTCDate() + i);
+    const d = new Date(startDate);
+    d.setUTCDate(startDate.getUTCDate() + i);
     const key = d.toISOString().slice(0, 10);
     const entry = byDay.get(key) || { pnlUsd: 0, count: 0 };
     days.push({
@@ -201,6 +223,8 @@ function buildCalendar(perf, weeks = 12) {
       pnlUsd: Math.round(entry.pnlUsd * 100) / 100,
       count: entry.count,
       dow: d.getUTCDay(),
+      isToday: key === todayKey,
+      isFuture: d.getTime() > todayUtc.getTime(),
     });
   }
 
@@ -211,6 +235,7 @@ function buildCalendar(perf, weeks = 12) {
     totalDays,
     startDate: days[0].date,
     endDate: days[days.length - 1].date,
+    todayDate: todayKey,
     days,
     maxAbsPnlUsd: Math.round(maxAbs * 100) / 100,
   };

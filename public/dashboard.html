@@ -352,6 +352,24 @@ a:hover { text-decoration: underline; }
 .cal-cell.empty .cal-date {
   color: rgba(255, 255, 255, 0.25);
 }
+.cal-cell.future {
+  background: #131313;
+  border: 1px dashed rgba(255, 255, 255, 0.06);
+}
+.cal-cell.future .cal-date,
+.cal-cell.future .cal-month,
+.cal-cell.future .cal-day {
+  color: rgba(255, 255, 255, 0.15);
+}
+.cal-cell.today {
+  outline: 2px solid #ffd866;
+  outline-offset: -1px;
+  z-index: 1;
+}
+.cal-cell.today .cal-date {
+  color: #ffd866;
+  font-weight: 700;
+}
 .cal-cell.pos[data-pnl-tier="1"] { background: rgba(80, 215, 107, 0.25); }
 .cal-cell.pos[data-pnl-tier="2"] { background: rgba(80, 215, 107, 0.5); }
 .cal-cell.pos[data-pnl-tier="3"] { background: rgba(80, 215, 107, 0.75); }
@@ -712,12 +730,20 @@ async function renderCalendar() {
       ? `${dayLong}, ${monthAbbr} ${dayNum}, ${year}: ${pnlStr} (${countStr})`
       : `${dayLong}, ${monthAbbr} ${dayNum}, ${year}: no trade`;
 
-    return `<div class="cal-cell ${s}${isEmpty ? ' empty' : ''}" data-pnl-tier="${t}" data-date="${d.date}">
+    const classes = [
+      'cal-cell',
+      s,
+      isEmpty ? 'empty' : '',
+      d.isFuture ? 'future' : '',
+      d.isToday ? 'today' : '',
+    ].filter(Boolean).join(' ');
+
+    return `<div class="${classes}" data-pnl-tier="${t}" data-date="${d.date}">
       <span class="cal-date">${dayNum}</span>
       <span class="cal-month">${monthAbbr}</span>
       <span class="cal-day">${dayAbbr}</span>
       ${d.count ? `<div class="cal-pnl">${pnlStr}</div><div class="cal-count">${countStr}</div>` : ''}
-      <span class="cal-tooltip">${tooltip}</span>
+      <span class="cal-tooltip">${tooltip}${d.isToday ? ' · TODAY' : ''}</span>
     </div>`;
   }).join('');
 
