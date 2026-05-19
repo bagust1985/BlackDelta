@@ -2,8 +2,8 @@
 
 > Ringkasan komprehensif pekerjaan di session ini (2026-05-15 → 2026-05-19).
 > Baseline: commit `193535c` (last Meridian-era commit "Move relay position enrichment into bot").
-> Head: commit `9fd7ad9`.
-> **Net delta**: +7,146 / −2,307 LOC across 68 files.
+> Head: commit `0b9e0c9`.
+> **Net delta**: +7,400+ / −2,310 LOC across 74 files.
 
 ---
 
@@ -13,11 +13,15 @@
 |---|---|---|
 | BlackDelta PRD Phase 1-6 implemented | ✅ Done | commit `1b4eb4f` |
 | GitHub repo migrated | ✅ Done | `github.com/bagust1985/BlackDelta` (branch `blackdelta` default) |
-| Live mainnet deployment | ✅ Live | wallet `GTyad6...c3ia`, modal 1 SOL |
+| Live mainnet deployment | ✅ Live | wallet `GTyad6...c3ia`, modal **scaled 1 → 2 → 4 SOL** |
 | First profitable close | ✅ Done | +$1.71 (RoyalPop-SOL, 2026-05-18) |
-| Total realized PnL | ✅ +$6.37 | 6 closes across 2 days |
-| Public dashboard | ✅ Live | `blackdelta.cc` (Cloudflare + nginx + self-signed) |
-| Production process | ✅ Live | PM2 process `blackdelta` (auto-restart) |
+| Total realized PnL | ✅ **+$12.60** | **34 closes** across 3 days |
+| Win rate stabil | ✅ **65%** (22W / 12L) | meaningful signal at n=34 |
+| Domain migrated | ✅ Done | `selsiscan.online` → **`blackdelta.cc`** (Cloudflare-registered) |
+| Custom logo + branding | ✅ Live | `public/blackdelta.png`, tagline "Autonomous liquidity, asymmetric returns" |
+| Security hardening | ✅ Level 1 | nginx Cloudflare-only enforcement (`$http_cf_connecting_ip` check) |
+| Per-position sizing tuned | ✅ Done | 0.5 SOL → **0.96 SOL** (uniform across 3 slots @ 4 SOL wallet) |
+| Production process | ✅ Live | PM2 process `blackdelta` (auto-restart, 24+ uptime) |
 
 ---
 
@@ -377,5 +381,181 @@ Dalam 4 hari (2026-05-15 → 2026-05-19):
 
 **Repo**: `github.com/bagust1985/BlackDelta`
 **Branch**: `blackdelta` (default)
-**Total commits**: 19
+**Total commits**: 30
+
+---
+
+## 18. Session 2 Updates (2026-05-19, evening session)
+
+### Domain Migration
+- **Old**: `selsiscan.online` → **New**: `blackdelta.cc`
+- Cloudflare-registered domain (DNS auto-managed)
+- Self-signed cert regenerated dengan 4 SAN (covers both domains for transition)
+- nginx config: blackdelta.cc canonical, www.blackdelta.cc 301, selsiscan.online 410 Gone
+- Mirror nginx config tersimpan di `deploy/nginx/blackdelta.conf` (source of truth)
+
+### Security Hardening Level 1
+- **Threat**: Direct VPS IP (76.13.208.204) bypass Cloudflare → no rate limit, scraper-friendly
+- **Fix**: nginx `if ($http_cf_connecting_ip = "") { return 444; }` di semua server block
+- **Effect**: traffic langsung ke VPS IP → connection dropped silently
+- **Limitation**: header spoofable (Level 2 / 3 closes gap kalau dibutuhkan)
+- **Documented**: `deploy/nginx/README.md` dengan 4-level hardening model
+
+### Security Audit Completed
+- ✅ Private key SAFE (verified 0 occurrences in all served data)
+- ✅ Path traversal blocked (404 untuk /etc/passwd, /.env, etc)
+- ✅ No revealing headers (Server version, X-Powered-By hidden)
+- ⚠️ SILARACE running as root (same VPS, user-owned, lower priority)
+- ⚠️ Both projects same `deployer` user (acceptable, same owner)
+
+### Visual & Branding
+- **Logo**: `public/blackdelta.png` (1254×1254 PNG, 1.3MB) uploaded
+- **Favicon routes**: `/blackdelta.png`, `/favicon.png`, `/apple-touch-icon.png`
+- **Tagline**: terminal title bar → "Autonomous liquidity, asymmetric returns"
+- **Powered-by**: prompt line → "blackdelta@powered by Silamind AI"
+- **Static asset serving**: new `serveStaticAsset()` di web-server.js (path-traversal guard + 1-day cache)
+
+### PnL Calendar Heatmap (Phase 5 dashboard feature)
+- 12-week forward-looking, Monday-aligned grid
+- In-cell labels: date, month abbr, day abbr, PnL value, close count
+- Color tiers: 4 intensities profit (green) + 4 intensities loss (red)
+- Today highlight: yellow outline (`#ffd866`)
+- Future cells: dashed border + faded text
+- Mobile: PnL value visible, labels hidden (cells too small)
+- Tooltip: full date format ("Monday, May 18, 2026: +$5.24 (5 closes)")
+- Background: unified `#0d0d0d` (matches empty cells, profit/loss pop visually)
+
+### Sizing Tuned for 4 SOL Wallet
+| Config | Before | After |
+|---|---|---|
+| `deployAmountSol` | 0.5 | **0.96** |
+| `positionSizePct` | 0.35 | **0.24** |
+| Result | varied (1.33 → 0.86 → 0.56) | **uniform 0.96 SOL** × 3 positions |
+| Total deployed (3 slots) | ~2.76 SOL | **2.88 SOL** |
+| Liquid reserve | 1.24 SOL | 1.12 SOL (incl 0.2 gas) |
+
+### Performance Trajectory Observed
+```
+22 closes  : 64% win | +$9.64 | avg $0.44 | avg 1.03%
+34 closes  : 65% win | +$12.60 | avg $0.37 | avg 0.87%
+              ↑ stable        ↑ growing  ↓ declining
+```
+
+**Insight**: PnL per close declining (size ke-tune lebih kecil saat profit). Rolling 10-window:
+- Closes 1-10: avg $0.81 (early high-conviction wins)
+- Closes 21-30: avg $0.27 (recent)
+
+**Root cause**: bot exit terlalu cepat via "Trailing TP: OOR 30m" (8/10 last closes), pool sweet spot shifted.
+
+### Late-Session Discussion: Monetization & Scaling
+- User considering eventual modal $10-20k
+- Honest assessment: 3-6 bulan minimum sebelum capacity itu
+- Phase 1 (multi-DEX adapter) **belum pantas sekarang** — focus optimize Meteora-only first
+- Current limit: bot designed untuk 3-15 SOL sweet spot
+
+### Commits This Session (10+)
+```
+0b9e0c9  Update sizing example to 0.96 SOL/position pattern
+4ad6694  Rebrand dashboard chrome: tagline + powered-by line
+cd3d826  Mirror production nginx config to repo as deployment reference
+0603eea  Use uploaded blackdelta.png logo as favicon + touch icon
+8a0802b  Migrate primary domain from selsiscan.online to blackdelta.cc
+006089b  Add SUMMARY.md — comprehensive session work log
+9fd7ad9  Show PnL value on mobile calendar cells
+bfa2ac0  Calendar: unify wrap and empty-cell background to true black
+b1f10cd  Calendar: forward-looking from first trade, Monday-aligned rows
+ac70d6c  Show date/month/day + PnL inside calendar cells
+```
+
+---
+
+## 19. NEXT SESSION — Pending Tasks & Decisions
+
+### High Priority (Tune-Time)
+
+- [ ] **Re-assess avg PnL trajectory at 50 closes** (currently 34)
+  - If avg stays at $0.27-0.40/close → apply Opsi C (tighter filter + longer hold)
+  - If recovery to $0.50+/close → status quo
+
+- [ ] **Apply Opsi A / B / C tuning** based on data signal
+  - **Opsi A — Tighter filter**: `minFeeActiveTvlRatio: 0.025`, `maxVolatility: 3`, `minTokenFeesSol: 50`
+  - **Opsi B — Longer hold**: `outOfRangeWaitMinutes: 60`, `minAgeBeforeYieldCheck: 120`, `minFeePerTvl24h: 5`
+  - **Opsi C — Combo**: Apply both A + B (most conservative)
+
+### Medium Priority (Phase Activation)
+
+- [ ] **Enable Phase 2 Treasury Allocator** (`config.treasury.enabled: true`)
+  - Shadow data udah 100+ samples, diff sekarang harusnya converge to ~0% setelah sizing tune
+  - Monitor 1 week setelah flip
+  - Expected: lebih intelligent per-pool sizing
+
+- [ ] **Enable Phase 5 Semantic Memory** (`config.memory.semantic: true`)
+  - Butuh `OPENAI_API_KEY` atau `VOYAGE_API_KEY` di `.env`
+  - Lessons ngegrow ke ~50+ now, semantic retrieval jadi worth it
+  - Expected: better LLM context, less repeat mistakes
+
+- [ ] **Enable Phase 6 Orchestrator Shadow** (`config.orchestrator.mode: "shadow"`)
+  - 48-72h shadow log untuk parity test
+  - Compare supervisor decisions vs legacy single-loop
+  - Kalau parity > 95% → flip ke "sequential"
+
+### Low Priority (Optimization)
+
+- [ ] **Optimize blackdelta.png** dari 1.3MB → ~30KB (256x256 resize)
+  - `convert public/blackdelta.png -resize 256x256 public/favicon-256.png`
+  - Update HTML link sizes
+
+- [ ] **Add `/blackdelta.cc` ke RUNNING.md** — replace any leftover `bot.yourdomain.com` placeholder
+
+- [ ] **Setup boot survival** untuk PM2: `pm2 save && pm2 startup` (ikutin sudo instruction)
+
+### Security Followups (Conditional pada Scaling)
+
+- [ ] **Level 2 — Cloudflare Authenticated Origin Pulls** (saat modal scale ke 10+ SOL)
+- [ ] **Level 3 — UFW firewall CF-IP whitelist** (saat scale ke $1k+ position size)
+- [ ] **Migrate SILARACE off root user** (defense in depth, low urgency since user-owned)
+
+### Strategic Decision Points (Saat Mature)
+
+- [ ] **Top-up modal decision**: stay 4 SOL atau scale 10-20 SOL?
+  - Pre-requisite: 100+ closes consistent + Phase 2 live
+  - Realistic timeline: 4-8 weeks dari sekarang
+
+- [ ] **Multi-DEX adapter implementation** (Phase 1 Raydium/Orca)
+  - Skip kalau Meteora cuma kasih 5-15% extra alpha
+  - Trigger: bulan ke-3+ kalau modal sudah 10+ SOL
+
+- [ ] **Monetization Stage B**: Twitter/Telegram channel public
+  - Bot udah profitable n=34 closes, reputation building bisa mulai
+  - Action: bikin Twitter account + weekly recap automation
+
+### Operational Reminders
+
+- [ ] **Daily**: `bd` script atau check `https://blackdelta.cc`
+- [ ] **Weekly**: review `decision-log.json` + `lessons.json`
+- [ ] **Monthly**: cek LLM API spend di DeepSeek + Gemini dashboard
+- [ ] **Quarterly**: revisit modal scaling decision
+
+---
+
+## 20. Quick Status Snapshot (End of Session)
+
+```
+Bot status         : ONLINE via PM2 (PID 1921563, 0h uptime post-restart)
+Wallet             : GTyad67hyBFkXg3o5MzLNnzQYRderb7h44UZcDwEc3ia (4 SOL total value)
+Open positions     : Variable (kemungkinan 3 dengan transition)
+Closed positions   : 34
+Realized PnL       : +$12.60
+Win rate           : 65% (signal real at n=34)
+Per-position size  : 0.96 SOL (new config, transitioning from 0.5 mix)
+Dashboard          : https://blackdelta.cc ✅
+Logo               : custom ✅
+Tagline            : "Autonomous liquidity, asymmetric returns" ✅
+Security Level 1   : Cloudflare-only enforced ✅
+GitHub             : 30+ commits, branch blackdelta = default
+```
+
+**Posisi terakhir**: bot otonomous masih trade, transition ke 0.96 SOL size dalam progress.
+**Wallet topology**: 4 SOL total, ~2-3 SOL in LP, sisanya liquid + gas reserve.
+**Next milestone**: 50 closes — re-assess avg PnL trend untuk tuning decision.
 **Net code delta**: +7,146 / −2,307 LOC across 68 files
