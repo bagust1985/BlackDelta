@@ -305,6 +305,52 @@ a:hover { text-decoration: underline; }
   background: #1e1e1e;
   position: relative;
   cursor: default;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 4px;
+  overflow: hidden;
+  text-align: center;
+}
+.cal-cell .cal-date {
+  position: absolute;
+  top: 4px; left: 6px;
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.55);
+  font-weight: 500;
+  line-height: 1;
+  letter-spacing: 0.2px;
+}
+.cal-cell .cal-month {
+  position: absolute;
+  top: 4px; right: 6px;
+  font-size: 9px;
+  color: rgba(255, 255, 255, 0.4);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.cal-cell .cal-day {
+  position: absolute;
+  bottom: 4px; left: 6px;
+  font-size: 9px;
+  color: rgba(255, 255, 255, 0.35);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.cal-cell .cal-pnl {
+  font-size: 13px;
+  font-weight: 700;
+  color: #fff;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.5);
+}
+.cal-cell .cal-count {
+  font-size: 9px;
+  color: rgba(255, 255, 255, 0.7);
+  margin-top: 1px;
+}
+.cal-cell.empty .cal-date {
+  color: rgba(255, 255, 255, 0.25);
 }
 .cal-cell.pos[data-pnl-tier="1"] { background: rgba(80, 215, 107, 0.25); }
 .cal-cell.pos[data-pnl-tier="2"] { background: rgba(80, 215, 107, 0.5); }
@@ -432,6 +478,13 @@ a:hover { text-decoration: underline; }
     max-width: 100%;
   }
   .calendar-meta { font-size: 10px; }
+
+  /* Mobile cells too small for in-cell text — hide labels, keep tooltip */
+  .cal-cell .cal-date,
+  .cal-cell .cal-month,
+  .cal-cell .cal-day,
+  .cal-cell .cal-pnl,
+  .cal-cell .cal-count { display: none; }
 }
 
 /* ─── Extra small (≤ 380px) ────────────────────────── */
@@ -635,14 +688,36 @@ async function renderCalendar() {
     return pnl > 0 ? 'pos' : pnl < 0 ? 'neg' : '';
   }
 
+  const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const DAYS   = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  const DAYS_LONG = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+
   const cells = cal.days.map((d) => {
     const s = sign(d.pnlUsd);
     const t = tier(d.pnlUsd);
-    const label = d.count
-      ? `${d.date}: ${d.pnlUsd > 0 ? '+' : ''}$${d.pnlUsd.toFixed(2)} (${d.count} close${d.count > 1 ? 's' : ''})`
-      : `${d.date}: no trade`;
-    return `<div class="cal-cell ${s}" data-pnl-tier="${t}" data-date="${d.date}">
-      <span class="cal-tooltip">${label}</span>
+    const dt = new Date(d.date + 'T00:00:00Z');
+    const dayNum = dt.getUTCDate();
+    const monthAbbr = MONTHS[dt.getUTCMonth()];
+    const dayAbbr = DAYS[dt.getUTCDay()];
+    const dayLong = DAYS_LONG[dt.getUTCDay()];
+    const year = dt.getUTCFullYear();
+    const isEmpty = !d.count;
+    const pnlStr = d.count
+      ? `${d.pnlUsd > 0 ? '+' : ''}$${d.pnlUsd.toFixed(2)}`
+      : '';
+    const countStr = d.count
+      ? `${d.count} close${d.count > 1 ? 's' : ''}`
+      : '';
+    const tooltip = d.count
+      ? `${dayLong}, ${monthAbbr} ${dayNum}, ${year}: ${pnlStr} (${countStr})`
+      : `${dayLong}, ${monthAbbr} ${dayNum}, ${year}: no trade`;
+
+    return `<div class="cal-cell ${s}${isEmpty ? ' empty' : ''}" data-pnl-tier="${t}" data-date="${d.date}">
+      <span class="cal-date">${dayNum}</span>
+      <span class="cal-month">${monthAbbr}</span>
+      <span class="cal-day">${dayAbbr}</span>
+      ${d.count ? `<div class="cal-pnl">${pnlStr}</div><div class="cal-count">${countStr}</div>` : ''}
+      <span class="cal-tooltip">${tooltip}</span>
     </div>`;
   }).join('');
 
