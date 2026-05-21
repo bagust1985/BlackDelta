@@ -17,7 +17,7 @@ import { studyTopLPers } from "./study.js";
 import { addLesson, clearAllLessons, clearPerformance, removeLessonsByKeyword, getPerformanceHistory, pinLesson, unpinLesson, listLessons } from "../lessons.js";
 import { setPositionInstruction } from "../state.js";
 
-import { getPoolMemory, addPoolNote } from "../pool-memory.js";
+import { getPoolMemory, addPoolNote, hasRecentLargeLoss } from "../pool-memory.js";
 import { addStrategy, listStrategies, getStrategy, setActiveStrategy, removeStrategy } from "../strategy-library.js";
 import { addToBlacklist, removeFromBlacklist, listBlacklist } from "../token-blacklist.js";
 import { blockDev, unblockDev, listBlockedDevs } from "../dev-blocklist.js";
@@ -809,6 +809,18 @@ async function runSafetyChecks(name, args) {
     case "deploy_position": {
       const poolThresholds = await validateDeployPoolThresholds(args);
       if (!poolThresholds.pass) return poolThresholds;
+
+      // Post-Coinini hard veto: refuse re-entry on pools that recently bled out.
+      // Configurable via config.management.recentLossVetoPct / recentLossVetoHours.
+      const lossThreshold = config.management.recentLossVetoPct ?? -10;
+      const lookbackHours = config.management.recentLossVetoHours ?? 24;
+      const recentLoss = hasRecentLargeLoss(args.pool_address, { lossThresholdPct: lossThreshold, lookbackHours });
+      if (recentLoss) {
+        return {
+          pass: false,
+          reason: `Pool blocked: recent close at PnL ${recentLoss.pnl_pct}% (<= ${lossThreshold}%) within last ${lookbackHours}h. Closed at ${recentLoss.closed_at}, reason: "${recentLoss.close_reason || "unknown"}".`,
+        };
+      }
 
       // Reject pools with bin_step out of configured range
       const minStep = config.screening.minBinStep;

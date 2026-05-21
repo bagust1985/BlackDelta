@@ -234,6 +234,35 @@ export function isBaseMintOnCooldown(baseMint) {
   );
 }
 
+/**
+ * Hard veto: returns the most recent large-loss close on this pool within the
+ * lookback window, or null if none. Post-Coinini guard — prevents bot from
+ * re-entering a pool that just bled out.
+ *
+ * @param {string} poolAddress
+ * @param {object} [opts]
+ * @param {number} [opts.lossThresholdPct=-10] — any deploy with pnl_pct <= this counts
+ * @param {number} [opts.lookbackHours=24]
+ * @returns {{closed_at:string, pnl_pct:number, close_reason:string}|null}
+ */
+export function hasRecentLargeLoss(poolAddress, { lossThresholdPct = -10, lookbackHours = 24 } = {}) {
+  if (!poolAddress) return null;
+  const db = load();
+  const entry = db[poolAddress];
+  if (!entry?.deploys?.length) return null;
+  const cutoff = Date.now() - lookbackHours * 60 * 60 * 1000;
+  for (let i = entry.deploys.length - 1; i >= 0; i--) {
+    const d = entry.deploys[i];
+    if (d.pnl_pct == null) continue;
+    const closedAtMs = d.closed_at ? new Date(d.closed_at).getTime() : 0;
+    if (closedAtMs < cutoff) break;  // deploys are append-ordered; older ones won't qualify
+    if (d.pnl_pct <= lossThresholdPct) {
+      return { closed_at: d.closed_at, pnl_pct: d.pnl_pct, close_reason: d.close_reason };
+    }
+  }
+  return null;
+}
+
 // ─── Read ──────────────────────────────────────────────────────
 
 /**
