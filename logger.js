@@ -7,6 +7,29 @@ const LOG_LEVEL = process.env.LOG_LEVEL || "info";
 const LEVELS = { debug: 0, info: 1, warn: 2, error: 3 };
 const currentLevel = LEVELS[LOG_LEVEL] || 1;
 
+// Keys whose values must never be written to disk or stdout.
+const SENSITIVE_KEY_PATTERN = /^(.*api[_-]?key.*|.*secret.*|.*private[_-]?key.*|.*password.*|.*token.*|walletKey|wallet_key|hiveMindApiKey|publicApiKey|blackDeltaApiUrl|hiveMindUrl|telegramBotToken|telegramChatId|heliusApiKey|jupiterApiKey|openrouterApiKey)$/i;
+
+function redactSensitive(value, depth = 0) {
+  if (depth > 6 || value === null || value === undefined) return value;
+  if (Array.isArray(value)) return value.map((v) => redactSensitive(v, depth + 1));
+  if (typeof value === "object") {
+    const out = {};
+    for (const [k, v] of Object.entries(value)) {
+      if (k === "__proto__" || k === "constructor" || k === "prototype") continue;
+      if (SENSITIVE_KEY_PATTERN.test(k)) {
+        out[k] = typeof v === "string" && v.length > 0 ? `[REDACTED:${v.length}]` : "[REDACTED]";
+      } else {
+        out[k] = redactSensitive(v, depth + 1);
+      }
+    }
+    return out;
+  }
+  return value;
+}
+
+export { redactSensitive };
+
 // Ensure log directory exists
 if (!fs.existsSync(LOG_DIR)) {
   fs.mkdirSync(LOG_DIR, { recursive: true });
@@ -60,7 +83,7 @@ function actionHint(action) {
 export function logAction(action) {
   const timestamp = new Date().toISOString();
 
-  const entry = { timestamp, ...action };
+  const entry = redactSensitive({ timestamp, ...action });
 
   // Console: single clean line, no raw JSON
   const status = action.success ? "✓" : "✗";
@@ -68,7 +91,7 @@ export function logAction(action) {
   const hint = actionHint(action);
   console.log(`[${action.tool}] ${status}${hint}${dur}`);
 
-  // File: full JSON for audit trail
+  // File: full JSON for audit trail (secrets redacted)
   const dateStr = timestamp.split("T")[0];
   const actionsFile = path.join(LOG_DIR, `actions-${dateStr}.jsonl`);
   fs.appendFileSync(actionsFile, JSON.stringify(entry) + "\n");

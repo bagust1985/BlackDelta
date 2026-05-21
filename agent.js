@@ -4,6 +4,24 @@ import { buildSystemPrompt } from "./prompt.js";
 import { executeTool } from "./tools/executor.js";
 import { tools } from "./tools/definitions.js";
 
+// Cap LLM tool-argument payloads (anti-DoS via huge JSON).
+const MAX_TOOL_ARGS_BYTES = 16 * 1024;
+
+// Recursively strip prototype-pollution keys from parsed tool args.
+function sanitizeArgs(value, depth = 0) {
+  if (depth > 8 || value === null || value === undefined) return value;
+  if (Array.isArray(value)) return value.map((v) => sanitizeArgs(v, depth + 1));
+  if (typeof value === "object") {
+    const out = {};
+    for (const [k, v] of Object.entries(value)) {
+      if (k === "__proto__" || k === "constructor" || k === "prototype") continue;
+      out[k] = sanitizeArgs(v, depth + 1);
+    }
+    return out;
+  }
+  return value;
+}
+
 const MANAGER_TOOLS  = new Set(["close_position", "claim_fees", "swap_token", "get_position_pnl", "get_my_positions", "get_wallet_balance"]);
 const SCREENER_TOOLS = new Set(["deploy_position", "get_active_bin", "get_top_candidates", "check_smart_wallets_on_pool", "get_token_holders", "get_token_narrative", "get_token_info", "search_pools", "get_pool_memory", "get_wallet_balance", "get_my_positions"]);
 const GENERAL_INTENT_ONLY_TOOLS = new Set([
@@ -316,6 +334,13 @@ export async function agentLoop(goal, maxSteps = config.llm.maxSteps, sessionHis
       if (msg.tool_calls) {
         for (const tc of msg.tool_calls) {
           if (tc.function?.arguments) {
+            if (tc.function.arguments.length > MAX_TOOL_ARGS_BYTES) {
+              tc.function.arguments = "{}";
+              const error = `Tool arguments exceeded ${MAX_TOOL_ARGS_BYTES} bytes for ${tc.function.name}`;
+              invalidToolArgErrors.set(tc.id, error);
+              log("error", error);
+              continue;
+            }
             try {
               JSON.parse(tc.function.arguments);
             } catch {
@@ -386,10 +411,10 @@ export async function agentLoop(goal, maxSteps = config.llm.maxSteps, sessionHis
         }
 
         try {
-          functionArgs = JSON.parse(toolCall.function.arguments);
+          functionArgs = sanitizeArgs(JSON.parse(toolCall.function.arguments));
         } catch {
           try {
-            functionArgs = JSON.parse(jsonrepair(toolCall.function.arguments));
+            functionArgs = sanitizeArgs(JSON.parse(jsonrepair(toolCall.function.arguments)));
             log("warn", `Repaired malformed JSON args for ${functionName}`);
           } catch (parseError) {
             log("error", `Failed to parse args for ${functionName}: ${parseError.message}`);

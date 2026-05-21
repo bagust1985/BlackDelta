@@ -102,7 +102,8 @@ function getWallet() {
       throw new Error("WALLET_PRIVATE_KEY not set");
     }
     _wallet = Keypair.fromSecretKey(bs58.decode(process.env.WALLET_PRIVATE_KEY));
-    log("init", `Wallet: ${_wallet.publicKey.toString()}`);
+    const pk = _wallet.publicKey.toString();
+    log("init", `Wallet: ${pk.slice(0, 4)}…${pk.slice(-4)}`);
   }
   return _wallet;
 }

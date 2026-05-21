@@ -46,7 +46,7 @@ const TIMEFRAME_MINUTES = {
   "12h": 720,
   "24h": 1440,
 };
-import { log, logAction } from "../logger.js";
+import { log, logAction, redactSensitive } from "../logger.js";
 import { notifyDeploy, notifyClose, notifySwap, sendMessage } from "../telegram.js";
 
 function numberOrNull(value) {
@@ -444,6 +444,12 @@ const toolMap = {
     const applied = {};
     const unknown = [];
 
+    // Keys that must NEVER be settable at runtime (secrets, trust anchors, endpoint redirects).
+    // Edit user-config.json directly to change these.
+    const SECRET_OR_TRUST_KEYS = new Set([
+      "hivemindapikey", "publicapikey", "blackdeltaapiurl", "hivemindurl", "agentid",
+    ]);
+
     // Build case-insensitive lookup
     const CONFIG_MAP_LOWER = Object.fromEntries(
       Object.entries(CONFIG_MAP).map(([k, v]) => [k.toLowerCase(), [k, v]])
@@ -451,6 +457,18 @@ const toolMap = {
 
     if (!changes || typeof changes !== "object" || Array.isArray(changes)) {
       return { success: false, error: "changes must be an object", reason };
+    }
+
+    for (const key of Object.keys(changes)) {
+      if (SECRET_OR_TRUST_KEYS.has(String(key).toLowerCase())) {
+        log("safety_block", `update_config rejected ${key}: not settable at runtime (edit user-config.json directly)`);
+        return {
+          success: false,
+          blocked: true,
+          error: `${key} cannot be modified at runtime — edit user-config.json directly`,
+          reason,
+        };
+      }
     }
 
     const STRATEGY_BIN_KEYS = new Set(["binsBelow", "minBinsBelow", "maxBinsBelow", "defaultBinsBelow"]);
@@ -475,7 +493,7 @@ const toolMap = {
     }
 
     if (Object.keys(applied).length === 0) {
-      log("config", `update_config failed — unknown keys: ${JSON.stringify(unknown)}, raw changes: ${JSON.stringify(changes)}`);
+      log("config", `update_config failed — unknown keys: ${JSON.stringify(unknown)}, raw changes: ${JSON.stringify(redactSensitive(changes))}`);
       return { success: false, unknown, reason };
     }
 
@@ -663,13 +681,13 @@ export async function executeTool(name, args) {
   // Strip model artifacts like "<|channel|>commentary" appended to tool names
   name = name.replace(/<.*$/, "").trim();
 
-  // ─── Validate tool exists ─────────────────
-  const fn = toolMap[name];
-  if (!fn) {
+  // ─── Validate tool exists (own-property only; reject prototype access) ───
+  if (!Object.prototype.hasOwnProperty.call(toolMap, name)) {
     const error = `Unknown tool: ${name}`;
     log("error", error);
     return { error };
   }
+  const fn = toolMap[name];
 
   // ─── Pre-execution safety checks ──────────
   if (PROTECTED_TOOLS.has(name)) {

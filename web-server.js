@@ -44,7 +44,7 @@ function readJsonSafe(p, fallback) {
 
 function isAuthorized(req) {
   const pw = config?.web?.password;
-  if (!pw) return true; // no password set = open access
+  if (!pw) return false; // fail closed: missing password = deny all
   const header = req.headers["authorization"];
   if (!header || !header.startsWith("Basic ")) return false;
   const decoded = Buffer.from(header.slice(6), "base64").toString("utf8");
@@ -326,14 +326,17 @@ export function start() {
     log("web", "dashboard disabled (config.web.enabled=false)");
     return null;
   }
+  if (!config?.web?.password) {
+    log("web_error", "dashboard refused to start: config.web.password is required when web.enabled=true");
+    return null;
+  }
   if (_server) return _server;
   const port = config.web.port || 3000;
   const host = config.web.host || "127.0.0.1";
   _server = http.createServer(handleRequest);
   _server.listen(port, host, () => {
     _startedAt = Date.now();
-    const authed = config.web.password ? "password-protected" : "OPEN (no password)";
-    log("web", `dashboard listening on http://${host}:${port} (${authed})`);
+    log("web", `dashboard listening on http://${host}:${port} (password-protected)`);
   });
   _server.on("error", (err) => log("web_error", `server error: ${err.message}`));
   return _server;
