@@ -64,10 +64,13 @@ export const config = {
   // Exposes status, positions, decisions, performance as JSON + HTML
   // dashboard. Set host=0.0.0.0 only behind a reverse proxy / Cloudflare.
   web: {
-    enabled:  u.web?.enabled  ?? (process.env.WEB_ENABLED === "true"),
-    host:     u.web?.host     ?? process.env.WEB_HOST     ?? "127.0.0.1",
-    port:     numericConfig(u.web?.port) ?? numericConfig(process.env.WEB_PORT) ?? 3000,
-    password: u.web?.password ?? process.env.WEB_PASSWORD ?? null,
+    enabled:     u.web?.enabled     ?? (process.env.WEB_ENABLED === "true"),
+    host:        u.web?.host        ?? process.env.WEB_HOST     ?? "127.0.0.1",
+    port:        numericConfig(u.web?.port) ?? numericConfig(process.env.WEB_PORT) ?? 3000,
+    password:    u.web?.password    ?? process.env.WEB_PASSWORD ?? null,
+    // Set true to allow open access (no password). Requires explicit opt-in —
+    // only use if dashboard is gated upstream (Cloudflare WAF, etc).
+    allowPublic: u.web?.allowPublic ?? (process.env.WEB_ALLOW_PUBLIC === "true"),
   },
 
   // ─── Multi-Agent Orchestrator (Phase 6) ──────

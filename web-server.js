@@ -43,8 +43,11 @@ function readJsonSafe(p, fallback) {
 }
 
 function isAuthorized(req) {
+  // Explicit opt-in: dashboard owner sets allowPublic=true to accept open access
+  // (e.g. behind Cloudflare gating). Without this flag, missing password = deny all.
+  if (config?.web?.allowPublic === true) return true;
   const pw = config?.web?.password;
-  if (!pw) return false; // fail closed: missing password = deny all
+  if (!pw) return false;
   const header = req.headers["authorization"];
   if (!header || !header.startsWith("Basic ")) return false;
   const decoded = Buffer.from(header.slice(6), "base64").toString("utf8");
@@ -326,8 +329,9 @@ export function start() {
     log("web", "dashboard disabled (config.web.enabled=false)");
     return null;
   }
-  if (!config?.web?.password) {
-    log("web_error", "dashboard refused to start: config.web.password is required when web.enabled=true");
+  const allowPublic = config.web.allowPublic === true;
+  if (!allowPublic && !config.web.password) {
+    log("web_error", "dashboard refused to start: set config.web.password OR config.web.allowPublic=true (explicit opt-in for open access)");
     return null;
   }
   if (_server) return _server;
@@ -336,7 +340,8 @@ export function start() {
   _server = http.createServer(handleRequest);
   _server.listen(port, host, () => {
     _startedAt = Date.now();
-    log("web", `dashboard listening on http://${host}:${port} (password-protected)`);
+    const mode = allowPublic ? "PUBLIC (allowPublic=true)" : "password-protected";
+    log("web", `dashboard listening on http://${host}:${port} (${mode})`);
   });
   _server.on("error", (err) => log("web_error", `server error: ${err.message}`));
   return _server;
