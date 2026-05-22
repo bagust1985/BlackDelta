@@ -142,8 +142,10 @@ function getDefaultClient() {
 }
 
 function roleKeyFromAgentType(agentType) {
-  if (agentType === "SCREENER") return "screening";
-  if (agentType === "MANAGER")  return "management";
+  if (agentType === "SCREENER")   return "screening";
+  if (agentType === "MANAGER")    return "management";
+  if (agentType === "RESEARCHER") return "researcher";
+  if (agentType === "LESSONS")    return "lessons";
   return "general";
 }
 

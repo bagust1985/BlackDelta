@@ -218,8 +218,21 @@ export const config = {
     providers: {
       screening:  u.llm?.providers?.screening  ?? null,
       management: u.llm?.providers?.management ?? null,
+      researcher: u.llm?.providers?.researcher ?? null,
       general:    u.llm?.providers?.general    ?? null,
+      lessons:    u.llm?.providers?.lessons    ?? null,
     },
+  },
+
+  // ─── Lessons synthesis loop (LLM-based daily insight derivation) ──
+  // Periodic LLM pass over closed positions to extract strategic insights.
+  // Cheaper than per-close synthesis. Runs once daily by default.
+  lessonsLoop: {
+    enabled:       u.lessonsLoop?.enabled       ?? false,
+    cron:          u.lessonsLoop?.cron          ?? "5 0 * * *",  // 00:05 UTC daily
+    lookbackHours: u.lessonsLoop?.lookbackHours ?? 24,
+    minCloses:     u.lessonsLoop?.minCloses     ?? 3,  // skip if too few closes
+    maxInsights:   u.lessonsLoop?.maxInsights   ?? 3,  // top-N insights to keep
   },
 
   // ─── Darwinian Signal Weighting ───────

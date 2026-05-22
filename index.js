@@ -820,6 +820,27 @@ Summarize the current portfolio health, total fees earned, and performance of al
     await maybeRunMissedBriefing();
   }, { timezone: 'UTC' });
 
+  // Daily lessons synthesis — LLM-based insight extraction from closed positions.
+  // No-op when config.lessonsLoop.enabled === false.
+  let lessonsTask = null;
+  if (config.lessonsLoop?.enabled) {
+    const cronExpr = config.lessonsLoop.cron || "5 0 * * *";
+    if (cron.validate(cronExpr)) {
+      lessonsTask = cron.schedule(cronExpr, async () => {
+        try {
+          const { synthesizeDailyLessons } = await import("./lessons-synthesizer.js");
+          const r = await synthesizeDailyLessons();
+          log("cron", `Lessons synthesis: ${r.ok ? `${r.insightCount} insight(s) saved` : `skipped (${r.skipped || r.error})`}`);
+        } catch (e) {
+          log("cron_error", `Lessons synthesis failed: ${e.message}`);
+        }
+      }, { timezone: 'UTC' });
+      log("cron", `Lessons synthesis cron scheduled: "${cronExpr}" UTC`);
+    } else {
+      log("cron_warn", `Invalid lessonsLoop.cron expression "${cronExpr}" — synthesis disabled`);
+    }
+  }
+
   // Lightweight 30s PnL poller — updates trailing TP state between management cycles, no LLM
   let _pnlPollBusy = false;
   const pnlPollInterval = setInterval(async () => {
@@ -881,6 +902,7 @@ Summarize the current portfolio health, total fees earned, and performance of al
   }, 30_000);
 
   _cronTasks = [mgmtTask, screenTask, healthTask, briefingTask, briefingWatchdog];
+  if (lessonsTask) _cronTasks.push(lessonsTask);
   // Store interval ref so stopCronJobs can clear it
   _cronTasks._pnlPollInterval = pnlPollInterval;
   log("cron", `Cycles started — management every ${config.schedule.managementIntervalMin}m, screening every ${config.schedule.screeningIntervalMin}m`);
