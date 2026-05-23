@@ -25,7 +25,7 @@ import {
   createLiveMessage,
 } from "./telegram.js";
 import { generateBriefing } from "./briefing.js";
-import { getLastBriefingDate, setLastBriefingDate, getTrackedPosition, setPositionInstruction, updatePnlAndCheckExits, queuePeakConfirmation, resolvePendingPeak, queueTrailingDropConfirmation, resolvePendingTrailingDrop } from "./state.js";
+import { getLastBriefingDate, setLastBriefingDate, getTrackedPosition, setPositionInstruction, updatePnlAndCheckExits, queuePeakConfirmation, resolvePendingPeak, queueTrailingDropConfirmation, resolvePendingTrailingDrop, getDynamicTpParams } from "./state.js";
 import { getActiveStrategy } from "./strategy-library.js";
 import { recordPositionSnapshot, recallForPool, addPoolNote } from "./pool-memory.js";
 import { checkSmartWalletsOnPool } from "./smart-wallets.js";
@@ -46,6 +46,24 @@ if (isMain) {
   log("startup", "DLMM LP Agent starting...");
   log("startup", `Mode: ${process.env.DRY_RUN === "true" ? "DRY RUN" : "LIVE"}`);
   log("startup", `Model: ${process.env.LLM_MODEL || "hermes-3-405b"}`);
+
+  // Multi-layer screening env warnings
+  const mls = config.screening?.multiLayerScreening;
+  if (mls?.enabled) {
+    const layers = [];
+    if (mls.dexScreenerEnabled) layers.push("DexScreener");
+    if (mls.rugcheckEnabled)    layers.push("Rugcheck");
+    if (mls.gmgnEnabled) {
+      if (!process.env.GMGN_API_KEY) {
+        log("startup_warn", "multiLayerScreening.gmgnEnabled=true but GMGN_API_KEY env var is NOT set — GMGN layer will be skipped");
+      } else {
+        layers.push("GMGN");
+      }
+    }
+    if (mls.smartContractCheck) layers.push("SmartContract");
+    log("startup", `Multi-layer screening enabled: ${layers.join(" + ") || "(none)"}`);
+  }
+
   ensureAgentId();
   bootstrapHiveMind().catch((error) => log("hivemind_warn", `Bootstrap failed: ${error.message}`));
   startHiveMindBackgroundSync();
@@ -142,10 +160,12 @@ function scheduleTrailingDropConfirmation(positionAddress) {
     try {
       const result = await getMyPositions({ force: true, silent: true }).catch(() => null);
       const position = result?.positions?.find((p) => p.position === positionAddress);
+      const trackedPos = getTrackedPosition(positionAddress);
+      const dynTp = getDynamicTpParams(trackedPos?.volatility, config.management);
       const resolved = resolvePendingTrailingDrop(
         positionAddress,
         position?.pnl_pct ?? null,
-        config.management.trailingDropPct,
+        dynTp.trailingDropPct,
         TRAILING_DROP_CONFIRM_TOLERANCE_PCT,
       );
       if (resolved?.confirmed) {
@@ -242,7 +262,8 @@ export async function runManagementCycle({ silent = false } = {}) {
       const exit = updatePnlAndCheckExits(p.position, p, config.management);
       if (exit) {
         if (exit.action === "TRAILING_TP" && exit.needs_confirmation && shouldUsePnlRecheck()) {
-          if (queueTrailingDropConfirmation(p.position, exit.peak_pnl_pct, exit.current_pnl_pct, config.management.trailingDropPct)) {
+          const dynTp = getDynamicTpParams(getTrackedPosition(p.position)?.volatility, config.management);
+          if (queueTrailingDropConfirmation(p.position, exit.peak_pnl_pct, exit.current_pnl_pct, dynTp.trailingDropPct)) {
             scheduleTrailingDropConfirmation(p.position);
           }
           continue;
@@ -864,7 +885,8 @@ Summarize the current portfolio health, total fees earned, and performance of al
         const exit = updatePnlAndCheckExits(p.position, p, config.management);
         if (exit) {
           if (exit.action === "TRAILING_TP" && exit.needs_confirmation && shouldUsePnlRecheck()) {
-            if (queueTrailingDropConfirmation(p.position, exit.peak_pnl_pct, exit.current_pnl_pct, config.management.trailingDropPct)) {
+            const dynTp = getDynamicTpParams(getTrackedPosition(p.position)?.volatility, config.management);
+            if (queueTrailingDropConfirmation(p.position, exit.peak_pnl_pct, exit.current_pnl_pct, dynTp.trailingDropPct)) {
               scheduleTrailingDropConfirmation(p.position);
             }
             continue;
@@ -1025,11 +1047,17 @@ function getDeterministicCloseRule(position, managementConfig) {
     return false;
   })();
 
+  // Dynamic TP brackets (volatility-aware). Falls back to static config if disabled or vol invalid.
+  const tpParams = getDynamicTpParams(tracked?.volatility, managementConfig);
+
   if (!pnlSuspect && position.pnl_pct != null && position.pnl_pct <= managementConfig.stopLossPct) {
     return { action: "CLOSE", rule: 1, reason: "stop loss" };
   }
-  if (!pnlSuspect && position.pnl_pct != null && position.pnl_pct >= managementConfig.takeProfitPct) {
-    return { action: "CLOSE", rule: 2, reason: "take profit" };
+  if (!pnlSuspect && position.pnl_pct != null && position.pnl_pct >= tpParams.takeProfitPct) {
+    const tag = managementConfig.volatilityAwareTp && Number.isFinite(Number(tracked?.volatility)) && Number(tracked.volatility) > 0
+      ? ` (dynamic ${tpParams.takeProfitPct}% @ vol ${tracked.volatility})`
+      : "";
+    return { action: "CLOSE", rule: 2, reason: `take profit${tag}` };
   }
   if (
     position.active_bin != null &&
@@ -1053,6 +1081,34 @@ function getDeterministicCloseRule(position, managementConfig) {
   ) {
     return { action: "CLOSE", rule: 5, reason: "low yield" };
   }
+
+  // Rule 6 — Smart age cutoff: at maxPositionAgeHours, close if pnl > threshold; else extend.
+  // Hard cap at maxPositionAgeHours + maxPositionAgeExtensionHours (force close regardless of pnl).
+  if (
+    position.age_minutes != null &&
+    managementConfig.maxPositionAgeHours != null
+  ) {
+    const maxAgeMin = managementConfig.maxPositionAgeHours * 60;
+    const hardCapMin = (managementConfig.maxPositionAgeHours + (managementConfig.maxPositionAgeExtensionHours ?? 0)) * 60;
+    const lossThreshold = managementConfig.maxAgeCloseLossThresholdPct ?? -5;
+
+    if (position.age_minutes >= hardCapMin) {
+      return {
+        action: "CLOSE",
+        rule: 6,
+        reason: `hard cap ${managementConfig.maxPositionAgeHours + (managementConfig.maxPositionAgeExtensionHours ?? 0)}h reached (${Math.round(position.age_minutes)}min, pnl ${position.pnl_pct ?? "?"}%)`,
+      };
+    }
+    if (position.age_minutes >= maxAgeMin && !pnlSuspect && (position.pnl_pct ?? 0) > lossThreshold) {
+      return {
+        action: "CLOSE",
+        rule: 6,
+        reason: `max age ${managementConfig.maxPositionAgeHours}h reached, pnl ${position.pnl_pct}% > ${lossThreshold}% (clean exit)`,
+      };
+    }
+    // else: in recovery window (pnl ≤ threshold), extend monitoring — fall through to STAY
+  }
+
   return null;
 }
 

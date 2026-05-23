@@ -172,6 +172,11 @@ const heliusKey = await ask(
   alreadySet(ev("HELIUS_API_KEY", ""))
 );
 
+const gmgnKey = await ask(
+  "GMGN.AI API key (multi-layer screening, optional)",
+  alreadySet(ev("GMGN_API_KEY", ""))
+);
+
 // ─── Section 2: Telegram ──────────────────────────────────────────────────────
 console.log("\n── Telegram (optional — skip to disable) ─────────────────────");
 
@@ -404,6 +409,7 @@ const envMap = {
   ...(isKept(walletKey)     ? {} : { WALLET_PRIVATE_KEY: walletKey }),
   ...(rpcUrl                ? { RPC_URL: rpcUrl } : {}),
   ...(isKept(heliusKey)     ? {} : { HELIUS_API_KEY: heliusKey }),
+  ...(isKept(gmgnKey)       ? {} : { GMGN_API_KEY: gmgnKey }),
   ...(isKept(telegramToken) ? {} : { TELEGRAM_BOT_TOKEN: telegramToken }),
   ...(telegramChatId        ? { TELEGRAM_CHAT_ID: telegramChatId } : {}),
   DRY_RUN: dryRun ? "true" : "false",

@@ -702,6 +702,27 @@ export async function getTopCandidates({ limit = 10 } = {}) {
     }
   }
 
+  // ── PHASE 7: Multi-layer screening (DexScreener + Rugcheck + GMGN + Smart Contract) ──
+  // Adds 4-layer enrichment + hard-filter on top of OKX + indicator confirmation.
+  // Layer failures (network/timeout) fall back to "pass" — don't block deploy on infra issues.
+  if (eligible.length > 0 && config.screening.multiLayerScreening?.enabled) {
+    try {
+      const before = eligible.length;
+      const { applyMultiLayerScreening } = await import("./multi-layer-screening.js");
+      const mlResult = await applyMultiLayerScreening(eligible, config.screening);
+      for (const f of mlResult.filtered) {
+        pushFilteredReason(filteredOut, f.pool, f.reason);
+        log("screening", `Multi-layer rejected ${f.pool.name} (${f.pool.pool?.slice(0, 8)}): ${f.reason}`);
+      }
+      eligible.splice(0, eligible.length, ...mlResult.passing);
+      if (eligible.length < before) {
+        log("screening", `Multi-layer screening removed ${before - eligible.length} candidate(s)`);
+      }
+    } catch (e) {
+      log("screening_warn", `Multi-layer screening errored: ${e.message} — passing all candidates through`);
+    }
+  }
+
   return {
     candidates: eligible,
     total_screened: pools.length,

@@ -121,6 +121,13 @@ RISK SIGNALS (guidelines — use judgment):
 - PVP symbol conflict (same exact symbol across multiple mints) → major negative. Avoid unless the setup is exceptional and clearly stronger than the competing symbol variants.
 - no narrative + no smart wallets → skip
 
+MULTI-LAYER DATA (when present in candidate.multi_layer):
+- multi_layer.dexscreener: { boosts_active, txns_h1_total, volume_h1, liquidity_usd, marketCap, pair_count } — high boosts (>500) or txns w/ low liquidity = artificial
+- multi_layer.rugcheck: { rug_score, top10_pct, mint_authority, freeze_authority, creator, creator_balance } — score 0-3 ideal; mint/freeze authority null = renounced (good)
+- multi_layer.gmgn: { holder_count, bundlers_pct, top10_pct, phishing_count, bluechip_pct, total_fees_sol, avg_holding_usd } — high bundlers/phishing = scam pattern
+- multi_layer.smart_contract: { mint_authority, freeze_authority, age_hours } — if authorities exist on token > 6h old = creator can still print/freeze
+- Hard rejects already happened upstream; remaining candidates passed all layers. Use multi_layer as TIE-BREAKER between candidates of similar conviction.
+
 NARRATIVE QUALITY (your main judgment call):
 - GOOD: specific origin — real event, viral moment, named entity, active community
 - BAD: generic hype ("next 100x", "community token") with no identifiable subject

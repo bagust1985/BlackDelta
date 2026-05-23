@@ -400,6 +400,12 @@ const toolMap = {
       gasReserve: ["management", "gasReserve"],
       positionSizePct: ["management", "positionSizePct"],
       minAgeBeforeYieldCheck: ["management", "minAgeBeforeYieldCheck"],
+      // smart age cutoff
+      maxPositionAgeHours:          ["management", "maxPositionAgeHours"],
+      maxPositionAgeExtensionHours: ["management", "maxPositionAgeExtensionHours"],
+      maxAgeCloseLossThresholdPct:  ["management", "maxAgeCloseLossThresholdPct"],
+      // volatility-aware TP
+      volatilityAwareTp:            ["management", "volatilityAwareTp"],
       // risk
       maxPositions: ["risk", "maxPositions"],
       maxDeployAmount: ["risk", "maxDeployAmount"],

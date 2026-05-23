@@ -147,6 +147,31 @@ export const config = {
     minTokenAgeHours:   u.minTokenAgeHours   ?? null, // null = no minimum
     maxTokenAgeHours:   u.maxTokenAgeHours   ?? null, // null = no maximum
     athFilterPct:       u.athFilterPct       ?? null, // e.g. -20 = only deploy if price is >= 20% below ATH
+    // Multi-layer screening (DexScreener + Rugcheck + GMGN + SC) — runs after OKX enrichment.
+    // Each layer hard-filters independently; failures fall back to "pass" (don't block on layer error).
+    multiLayerScreening: {
+      enabled:            u.multiLayerScreening?.enabled            ?? true,
+      dexScreenerEnabled: u.multiLayerScreening?.dexScreenerEnabled ?? true,
+      rugcheckEnabled:    u.multiLayerScreening?.rugcheckEnabled    ?? true,
+      gmgnEnabled:        u.multiLayerScreening?.gmgnEnabled        ?? false, // requires GMGN_API_KEY
+      smartContractCheck: u.multiLayerScreening?.smartContractCheck ?? true,  // uses Rugcheck-derived data
+      // Soft tuning
+      maxBoostCount:       u.multiLayerScreening?.maxBoostCount       ?? 500,
+      maxRugcheckScore:    u.multiLayerScreening?.maxRugcheckScore    ?? 50000,
+      metaRebrandKeywords: u.multiLayerScreening?.metaRebrandKeywords ?? ["trump", "elon", "musk", "pepe2", "anime"],
+      gmgnMaxBundlerPct:   u.multiLayerScreening?.gmgnMaxBundlerPct   ?? 0.60,
+      gmgnMaxPhishingPct:  u.multiLayerScreening?.gmgnMaxPhishingPct  ?? 0.30,
+      gmgnMinHolders:      u.multiLayerScreening?.gmgnMinHolders      ?? 800,
+      gmgnMinBluechipPct:  u.multiLayerScreening?.gmgnMinBluechipPct  ?? 0.005,
+      gmgnMinTotalFeesSol: u.multiLayerScreening?.gmgnMinTotalFeesSol ?? 20,
+      gmgnMinNewWallets:   u.multiLayerScreening?.gmgnMinNewWallets   ?? 100,
+      // Smart contract (derived from Rugcheck)
+      blockMintAuthority:  u.multiLayerScreening?.blockMintAuthority  ?? true,
+      blockFreezeAuthority: u.multiLayerScreening?.blockFreezeAuthority ?? true,
+      smartContractGraceAgeHours: u.multiLayerScreening?.smartContractGraceAgeHours ?? 6, // skip SC check if token < N hrs (pump.fun fresh)
+      // Per-layer timeouts (ms)
+      apiTimeoutMs:        u.multiLayerScreening?.apiTimeoutMs        ?? 8000,
+    },
   },
 
   // ─── Position Management ────────────────
@@ -170,6 +195,13 @@ export const config = {
     recentLossVetoPct:     u.recentLossVetoPct     ?? -10,    // any close <= this counts
     recentLossVetoHours:   u.recentLossVetoHours   ?? 24,
     minAgeBeforeYieldCheck: u.minAgeBeforeYieldCheck ?? 60, // minutes before low yield can trigger close
+    // Smart age cutoff: close at maxPositionAgeHours if pnl > maxAgeCloseLossThresholdPct,
+    // else extend monitoring up to maxPositionAgeExtensionHours more (hard cap at sum).
+    maxPositionAgeHours:           u.maxPositionAgeHours           ?? 6,
+    maxPositionAgeExtensionHours:  u.maxPositionAgeExtensionHours  ?? 3,
+    maxAgeCloseLossThresholdPct:   u.maxAgeCloseLossThresholdPct   ?? -5,
+    // Volatility-aware dynamic TP: when true, tp/trigger/drop scale per pool volatility bracket.
+    volatilityAwareTp:             u.volatilityAwareTp             ?? true,
     minSolToOpen:          u.minSolToOpen          ?? 0.55,
     deployAmountSol:       u.deployAmountSol       ?? 0.5,
     gasReserve:            u.gasReserve            ?? 0.2,

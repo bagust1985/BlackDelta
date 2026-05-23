@@ -369,11 +369,44 @@ export function getStateSummary() {
  * @param {object} mgmtConfig
  * Returns { action, reason } or null if no exit needed.
  */
+/**
+ * Resolve volatility-aware TP/trailing parameters for a position.
+ * When mgmtConfig.volatilityAwareTp=true, brackets scale per pool volatility.
+ * Falls back to static config keys when disabled or volatility unknown/invalid.
+ *
+ * Conservative 3-tier brackets (chosen for stability over alpha):
+ *   vol < 1.5  → TP 4%,  trailing trigger 2.5%, drop 1.0%
+ *   vol 1.5-3  → TP 7%,  trailing trigger 4.0%, drop 1.5%
+ *   vol > 3    → TP 10%, trailing trigger 6.0%, drop 2.0%
+ *
+ * @param {number|null} volatility — pool volatility recorded at deploy
+ * @param {object} mgmtConfig — config.management
+ * @returns {{takeProfitPct:number, trailingTriggerPct:number, trailingDropPct:number}}
+ */
+export function getDynamicTpParams(volatility, mgmtConfig) {
+  const staticParams = {
+    takeProfitPct:      mgmtConfig.takeProfitPct,
+    trailingTriggerPct: mgmtConfig.trailingTriggerPct,
+    trailingDropPct:    mgmtConfig.trailingDropPct,
+  };
+  if (!mgmtConfig.volatilityAwareTp) return staticParams;
+
+  const v = Number(volatility);
+  if (!Number.isFinite(v) || v <= 0) return staticParams;
+
+  if (v < 1.5) return { takeProfitPct: 4,  trailingTriggerPct: 2.5, trailingDropPct: 1.0 };
+  if (v < 3)   return { takeProfitPct: 7,  trailingTriggerPct: 4.0, trailingDropPct: 1.5 };
+  return         { takeProfitPct: 10, trailingTriggerPct: 6.0, trailingDropPct: 2.0 };
+}
+
 export function updatePnlAndCheckExits(position_address, positionData, mgmtConfig) {
   const { pnl_pct: currentPnlPct, pnl_pct_derived, pnl_pct_suspicious, in_range, fee_per_tvl_24h } = positionData;
   const state = load();
   const pos = state.positions[position_address];
   if (!pos || pos.closed) return null;
+
+  // Resolve dynamic TP params for THIS position based on its volatility at deploy.
+  const tpParams = getDynamicTpParams(pos.volatility, mgmtConfig);
 
   if (pos.confirmed_trailing_exit_until) {
     if (new Date(pos.confirmed_trailing_exit_until).getTime() > Date.now() && pos.confirmed_trailing_exit_reason) {
@@ -389,11 +422,11 @@ export function updatePnlAndCheckExits(position_address, positionData, mgmtConfi
 
   let changed = false;
 
-  // Activate trailing TP once trigger threshold is reached
-  if (mgmtConfig.trailingTakeProfit && !pos.trailing_active && (pos.peak_pnl_pct ?? 0) >= mgmtConfig.trailingTriggerPct) {
+  // Activate trailing TP once trigger threshold is reached (dynamic per volatility)
+  if (mgmtConfig.trailingTakeProfit && !pos.trailing_active && (pos.peak_pnl_pct ?? 0) >= tpParams.trailingTriggerPct) {
     pos.trailing_active = true;
     changed = true;
-    log("state", `Position ${position_address} trailing TP activated (confirmed peak: ${pos.peak_pnl_pct}%)`);
+    log("state", `Position ${position_address} trailing TP activated (confirmed peak: ${pos.peak_pnl_pct}%, trigger: ${tpParams.trailingTriggerPct}%)`);
   }
 
   // Update OOR state
@@ -433,10 +466,10 @@ export function updatePnlAndCheckExits(position_address, positionData, mgmtConfi
   // ── Trailing TP ────────────────────────────────────────────────
   if (!pnl_pct_suspicious && pos.trailing_active) {
     const dropFromPeak = pos.peak_pnl_pct - currentPnlPct;
-    if (dropFromPeak >= mgmtConfig.trailingDropPct) {
+    if (dropFromPeak >= tpParams.trailingDropPct) {
       return {
         action: "TRAILING_TP",
-        reason: `Trailing TP: peak ${pos.peak_pnl_pct.toFixed(2)}% → current ${currentPnlPct.toFixed(2)}% (dropped ${dropFromPeak.toFixed(2)}% >= ${mgmtConfig.trailingDropPct}%)`,
+        reason: `Trailing TP: peak ${pos.peak_pnl_pct.toFixed(2)}% → current ${currentPnlPct.toFixed(2)}% (dropped ${dropFromPeak.toFixed(2)}% >= ${tpParams.trailingDropPct}%)`,
         needs_confirmation: true,
         peak_pnl_pct: pos.peak_pnl_pct,
         current_pnl_pct: currentPnlPct,
