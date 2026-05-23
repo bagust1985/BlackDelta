@@ -146,10 +146,24 @@ async function handlePositions() {
 
 function handleDecisions() {
   const data = readJsonSafe(DECISION_LOG, { decisions: [] });
+  // List view: strip heavy fields (full_report, candidates_seen) to keep payload small.
+  const decisions = (data.decisions || []).slice(0, 25).map((d) => {
+    const { full_report, candidates_seen, ...lite } = d;
+    return { ...lite, has_full_report: !!full_report, candidates_count: candidates_seen?.length ?? 0 };
+  });
   return {
-    decisions: (data.decisions || []).slice(0, 25),
+    decisions,
     total: data.decisions?.length || 0,
   };
+}
+
+function handleDecisionById(id) {
+  const data = readJsonSafe(DECISION_LOG, { decisions: [] });
+  const decision = (data.decisions || []).find((d) => d.id === id);
+  if (!decision) {
+    return { error: "not_found", id };
+  }
+  return decision; // full payload including full_report + candidates_seen
 }
 
 function handlePerformance() {
@@ -310,9 +324,16 @@ async function handleRequest(req, res) {
         return json(res, 200, handlePerformance());
       case "/healthz":
         return json(res, 200, { ok: true });
-      default:
+      default: {
+        // Pattern match: /api/decisions/:id (alphanumeric + underscore safe)
+        const m = url.match(/^\/api\/decisions\/([A-Za-z0-9_-]+)$/);
+        if (m) {
+          const result = handleDecisionById(m[1]);
+          return json(res, result.error ? 404 : 200, result);
+        }
         res.writeHead(404, { "content-type": "text/plain" });
         res.end("404 not found");
+      }
     }
   } catch (err) {
     log("web_error", `${url}: ${err.message}`);

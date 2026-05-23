@@ -25,6 +25,20 @@ function sanitize(value, maxLen = 280) {
   return String(value).replace(/\s+/g, " ").trim().slice(0, maxLen) || null;
 }
 
+// Cap full LLM report at 8KB per decision (avg LLM screening reply ~2-4KB).
+// 100 decisions × 8KB = max ~800KB file footprint.
+const MAX_FULL_REPORT_BYTES = 8 * 1024;
+
+function sanitizeReport(value) {
+  if (value == null) return null;
+  // Preserve newlines + multi-line formatting (unlike sanitize() which collapses whitespace).
+  const str = String(value).trim();
+  if (str.length === 0) return null;
+  return str.length > MAX_FULL_REPORT_BYTES
+    ? str.slice(0, MAX_FULL_REPORT_BYTES) + `\n\n... [truncated at ${MAX_FULL_REPORT_BYTES} bytes]`
+    : str;
+}
+
 export function appendDecision(entry) {
   const data = load();
   const decision = {
@@ -40,6 +54,11 @@ export function appendDecision(entry) {
     risks: Array.isArray(entry.risks) ? entry.risks.map((r) => sanitize(r, 140)).filter(Boolean).slice(0, 6) : [],
     metrics: entry.metrics || {},
     rejected: Array.isArray(entry.rejected) ? entry.rejected.map((r) => sanitize(r, 180)).filter(Boolean).slice(0, 8) : [],
+    // Optional full LLM report (preserves newlines, capped at 8KB).
+    // Used by dashboard modal to show complete reasoning.
+    full_report: sanitizeReport(entry.full_report),
+    // Optional structured candidate snapshot (for screening decisions).
+    candidates_seen: Array.isArray(entry.candidates_seen) ? entry.candidates_seen.slice(0, 20) : null,
   };
   data.decisions.unshift(decision);
   data.decisions = data.decisions.slice(0, MAX_DECISIONS);
@@ -50,6 +69,16 @@ export function appendDecision(entry) {
 export function getRecentDecisions(limit = 10) {
   const data = load();
   return (data.decisions || []).slice(0, limit);
+}
+
+/**
+ * Lookup single decision by ID. Returns null kalau ga ketemu.
+ * Used by /api/decisions/:id endpoint for popup detail view.
+ */
+export function getDecisionById(id) {
+  if (!id) return null;
+  const data = load();
+  return (data.decisions || []).find((d) => d.id === id) || null;
 }
 
 export function getDecisionSummary(limit = 6) {

@@ -175,7 +175,7 @@ table.simple tr:hover td { background: #232323; }
 .pnl-neutral { color: #888; }
 
 .decision-row td:first-child { color: #888; width: 70px; }
-.decision-row .type-badge {
+.type-badge {
   display: inline-block;
   padding: 1px 6px;
   border-radius: 2px;
@@ -184,12 +184,15 @@ table.simple tr:hover td { background: #232323; }
   letter-spacing: 0.5px;
   text-transform: uppercase;
 }
-.decision-row .type-deploy        { background: rgba(80, 215, 107, 0.15); color: #50d76b; }
-.decision-row .type-no_deploy     { background: rgba(136, 136, 136, 0.15); color: #aaa; }
-.decision-row .type-close         { background: rgba(255, 126, 117, 0.15); color: #ff7e75; }
-.decision-row .type-claim         { background: rgba(255, 209, 102, 0.15); color: #ffd166; }
-.decision-row .type-treasury_shadow { background: rgba(102, 217, 239, 0.15); color: #66d9ef; }
-.decision-row .type-skip          { background: rgba(136, 136, 136, 0.10); color: #888; }
+.type-deploy        { background: rgba(80, 215, 107, 0.15); color: #50d76b; }
+.type-no_deploy     { background: rgba(136, 136, 136, 0.15); color: #aaa; }
+.type-close         { background: rgba(255, 126, 117, 0.15); color: #ff7e75; }
+.type-claim         { background: rgba(255, 209, 102, 0.15); color: #ffd166; }
+.type-treasury_shadow { background: rgba(102, 217, 239, 0.15); color: #66d9ef; }
+.type-skip          { background: rgba(136, 136, 136, 0.10); color: #888; }
+.type-screen_cycle  { background: rgba(102, 217, 239, 0.12); color: #66d9ef; }
+.type-mgmt_cycle    { background: rgba(174, 129, 255, 0.15); color: #ae81ff; }
+.type-mgmt_shadow, .type-note, .type-unknown { background: rgba(136, 136, 136, 0.10); color: #888; }
 .decision-row td .reason {
   color: #ccc;
   font-size: 11px;
@@ -529,6 +532,167 @@ a:hover { text-decoration: underline; }
   table.simple td > * { text-align: left; }
   .bin-bar { width: 100%; }
 }
+
+/* ─── Decision detail modal ─────────────────────────────────────── */
+.decision-row { cursor: pointer; transition: background 0.1s; }
+.decision-row:hover { background: rgba(102, 217, 239, 0.06); }
+.decision-row td:last-child::after {
+  content: " ›";
+  color: #66d9ef;
+  font-weight: 600;
+  opacity: 0.5;
+}
+.decision-row:hover td:last-child::after { opacity: 1; }
+
+.modal-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.75);
+  z-index: 1000;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  animation: fadeIn 0.15s ease-out;
+}
+.modal-overlay.active { display: flex; }
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+.modal-card {
+  background: #0d0d0d;
+  border: 1px solid #3a3a3a;
+  border-radius: 6px;
+  max-width: 900px;
+  width: 100%;
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.8);
+}
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 14px 18px;
+  border-bottom: 1px solid #2a2a2a;
+  gap: 12px;
+}
+.modal-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #66d9ef;
+  margin: 0;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.modal-title small { color: #888; font-weight: normal; font-size: 11px; }
+.modal-close {
+  background: transparent;
+  border: 1px solid #3a3a3a;
+  color: #ccc;
+  cursor: pointer;
+  font-size: 16px;
+  width: 28px;
+  height: 28px;
+  border-radius: 3px;
+  line-height: 1;
+  transition: all 0.1s;
+}
+.modal-close:hover { background: #2a2a2a; color: #ff7e75; border-color: #ff7e75; }
+
+.modal-body {
+  padding: 16px 18px;
+  overflow-y: auto;
+  flex: 1;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.modal-body::-webkit-scrollbar { width: 8px; }
+.modal-body::-webkit-scrollbar-track { background: #1a1a1a; }
+.modal-body::-webkit-scrollbar-thumb { background: #3a3a3a; border-radius: 4px; }
+
+.modal-section { margin-bottom: 16px; }
+.modal-section-title {
+  font-size: 10px;
+  font-weight: 700;
+  color: #888;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  margin-bottom: 6px;
+  border-bottom: 1px dashed #2a2a2a;
+  padding-bottom: 4px;
+}
+.modal-section-title .badge {
+  margin-left: 6px;
+  font-weight: 400;
+  color: #66d9ef;
+  letter-spacing: 0;
+  text-transform: none;
+  font-size: 10px;
+}
+.modal-report {
+  background: #1a1a1a;
+  border: 1px solid #2a2a2a;
+  border-radius: 3px;
+  padding: 10px 12px;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  color: #d4d4d4;
+  font-family: 'SF Mono', Menlo, Monaco, Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.55;
+  max-height: 380px;
+  overflow-y: auto;
+}
+.modal-report::-webkit-scrollbar { width: 6px; }
+.modal-report::-webkit-scrollbar-track { background: #0d0d0d; }
+.modal-report::-webkit-scrollbar-thumb { background: #3a3a3a; border-radius: 4px; }
+
+.modal-grid {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 4px 12px;
+  font-size: 11px;
+}
+.modal-grid dt { color: #888; }
+.modal-grid dd { margin: 0; color: #d4d4d4; word-break: break-all; }
+
+.modal-risks-list { margin: 0; padding-left: 18px; color: #ff7e75; }
+.modal-rejected-list { margin: 0; padding-left: 18px; color: #aaa; }
+
+.modal-candidates {
+  font-size: 10px;
+  color: #aaa;
+}
+.modal-candidates table { width: 100%; border-collapse: collapse; }
+.modal-candidates th, .modal-candidates td {
+  text-align: left;
+  padding: 3px 6px;
+  border-bottom: 1px solid #1f1f1f;
+}
+.modal-candidates th { color: #888; font-weight: 600; }
+
+.modal-copy-btn {
+  background: transparent;
+  border: 1px solid #3a3a3a;
+  color: #888;
+  padding: 2px 8px;
+  border-radius: 3px;
+  font-size: 10px;
+  cursor: pointer;
+  margin-left: 8px;
+}
+.modal-copy-btn:hover { color: #66d9ef; border-color: #66d9ef; }
+
+@media (max-width: 600px) {
+  .modal-card { max-height: 92vh; }
+  .modal-header { padding: 10px 12px; }
+  .modal-body { padding: 12px; }
+  .modal-grid { grid-template-columns: 1fr; }
+}
 </style>
 </head>
 <body>
@@ -576,6 +740,17 @@ a:hover { text-decoration: underline; }
       <span id="last-update">Last update: —</span>
       <span>refresh: <span id="refresh-countdown">15</span>s · <a href="#" onclick="refreshAll(); return false;">force refresh</a></span>
     </div>
+  </div>
+</div>
+
+<!-- Decision detail modal (must be in DOM before script runs) -->
+<div id="decision-modal" class="modal-overlay">
+  <div class="modal-card">
+    <div class="modal-header">
+      <h3 class="modal-title" id="decision-modal-title">Decision</h3>
+      <button class="modal-close" onclick="closeDecisionModal()" aria-label="Close">×</button>
+    </div>
+    <div class="modal-body" id="decision-modal-body"></div>
   </div>
 </div>
 
@@ -689,7 +864,8 @@ async function renderDecisions() {
 
   let html = '<table class="simple"><thead><tr><th>Time</th><th>Type</th><th>Pool</th><th>Reason</th></tr></thead><tbody>';
   for (const d of data.decisions.slice(0, 25)) {
-    html += `<tr class="decision-row">
+    const hasReport = d.has_full_report ? ' title="Click to view full LLM report"' : ' title="Click to view detail"';
+    html += `<tr class="decision-row" data-id="${d.id}"${hasReport}>
       <td data-label="Time">${timeFmt(d.ts)}</td>
       <td data-label="Type"><span class="type-badge type-${d.type || 'unknown'}">${d.type || '?'}</span></td>
       <td data-label="Pool">${d.pool_name || (d.pool ? shortAddr(d.pool) : '—')}</td>
@@ -834,6 +1010,146 @@ setInterval(() => {
 }, 1000);
 
 refreshAll();
+
+// ─── Decision detail modal ─────────────────────────────────────────
+const modalEl = document.getElementById('decision-modal');
+const modalBodyEl = document.getElementById('decision-modal-body');
+const modalTitleEl = document.getElementById('decision-modal-title');
+
+function esc(s) {
+  return String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+}
+
+function fmtTs(iso) {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  return d.toLocaleString();
+}
+
+async function openDecisionModal(id) {
+  modalTitleEl.innerHTML = 'Loading decision...';
+  modalBodyEl.innerHTML = '<div style="color:#888;padding:20px;text-align:center">Fetching detail...</div>';
+  modalEl.classList.add('active');
+
+  const data = await fetchJson('/api/decisions/' + encodeURIComponent(id));
+  if (!data || data.error) {
+    modalBodyEl.innerHTML = `<div style="color:#ff7e75;padding:20px;text-align:center">⚠ Failed to load decision (${esc(data?.error || 'network')})</div>`;
+    return;
+  }
+
+  // Header: type badge + pool name + timestamp
+  modalTitleEl.innerHTML = `
+    <span class="type-badge type-${esc(data.type)}">${esc(data.type)}</span>
+    <span>${esc(data.pool_name || (data.pool ? data.pool.slice(0, 8) + '…' : '—'))}</span>
+    <small>· ${esc(data.actor)} · ${fmtTs(data.ts)}</small>
+  `;
+
+  let html = '';
+
+  // Summary
+  if (data.summary) {
+    html += `<div class="modal-section"><div class="modal-section-title">Summary</div><div style="color:#d4d4d4">${esc(data.summary)}</div></div>`;
+  }
+
+  // Full LLM report
+  if (data.full_report) {
+    html += `<div class="modal-section">
+      <div class="modal-section-title">
+        Full Report (${data.full_report.length.toLocaleString()} chars)
+        <button class="modal-copy-btn" data-copy="full_report">copy</button>
+      </div>
+      <div class="modal-report" id="full-report-content">${esc(data.full_report)}</div>
+    </div>`;
+  } else if (data.reason) {
+    html += `<div class="modal-section"><div class="modal-section-title">Reason (truncated — full report not captured)</div><div class="modal-report">${esc(data.reason)}</div></div>`;
+  }
+
+  // Risks
+  if (Array.isArray(data.risks) && data.risks.length > 0) {
+    html += `<div class="modal-section"><div class="modal-section-title">Risks</div><ul class="modal-risks-list">`;
+    for (const r of data.risks) html += `<li>${esc(r)}</li>`;
+    html += `</ul></div>`;
+  }
+
+  // Rejected alternatives
+  if (Array.isArray(data.rejected) && data.rejected.length > 0) {
+    html += `<div class="modal-section"><div class="modal-section-title">Rejected Alternatives (${data.rejected.length})</div><ul class="modal-rejected-list">`;
+    for (const r of data.rejected) html += `<li>${esc(r)}</li>`;
+    html += `</ul></div>`;
+  }
+
+  // Metrics
+  if (data.metrics && Object.keys(data.metrics).length > 0) {
+    html += `<div class="modal-section"><div class="modal-section-title">Metrics</div><dl class="modal-grid">`;
+    for (const [k, v] of Object.entries(data.metrics)) {
+      html += `<dt>${esc(k)}</dt><dd>${esc(typeof v === 'object' ? JSON.stringify(v) : v)}</dd>`;
+    }
+    html += `</dl></div>`;
+  }
+
+  // Candidates seen (for screening decisions)
+  if (Array.isArray(data.candidates_seen) && data.candidates_seen.length > 0) {
+    html += `<div class="modal-section">
+      <div class="modal-section-title">Candidates Seen <span class="badge">${data.candidates_seen.length}</span></div>
+      <div class="modal-candidates"><table><thead><tr>
+        <th>Pool</th><th>MCap</th><th>TVL</th><th>Fee/aTVL</th><th>Vol</th><th>Holders</th><th>Org</th>
+      </tr></thead><tbody>`;
+    for (const c of data.candidates_seen) {
+      html += `<tr>
+        <td>${esc(c.pool_name || c.base_symbol || c.pool?.slice(0, 8) || '—')}</td>
+        <td>${c.mcap ? '$' + Math.round(c.mcap / 1000) + 'k' : '—'}</td>
+        <td>${c.tvl ? '$' + Math.round(c.tvl / 1000) + 'k' : '—'}</td>
+        <td>${c.fee_active_tvl_ratio != null ? (c.fee_active_tvl_ratio * 100).toFixed(2) + '%' : '—'}</td>
+        <td>${c.volatility != null ? c.volatility.toFixed(2) : '—'}</td>
+        <td>${c.holders || '—'}</td>
+        <td>${c.organic_score || '—'}</td>
+      </tr>`;
+    }
+    html += `</tbody></table></div></div>`;
+  }
+
+  // Footer: IDs + pool/position address
+  html += `<div class="modal-section"><div class="modal-section-title">References</div><dl class="modal-grid">`;
+  html += `<dt>ID</dt><dd>${esc(data.id)}</dd>`;
+  if (data.pool) html += `<dt>Pool</dt><dd>${esc(data.pool)}</dd>`;
+  if (data.position) html += `<dt>Position</dt><dd>${esc(data.position)}</dd>`;
+  html += `</dl></div>`;
+
+  modalBodyEl.innerHTML = html;
+
+  // Wire copy buttons
+  modalBodyEl.querySelectorAll('.modal-copy-btn[data-copy]').forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const key = btn.getAttribute('data-copy');
+      const text = key === 'full_report' ? (data.full_report || '') : '';
+      navigator.clipboard.writeText(text).then(() => {
+        btn.textContent = 'copied!';
+        setTimeout(() => { btn.textContent = 'copy'; }, 1500);
+      });
+    });
+  });
+}
+
+function closeDecisionModal() {
+  modalEl.classList.remove('active');
+}
+
+// Close on overlay click (but not inside modal-card)
+modalEl.addEventListener('click', (e) => {
+  if (e.target === modalEl) closeDecisionModal();
+});
+// Close on ESC
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && modalEl.classList.contains('active')) closeDecisionModal();
+});
+
+// Event delegation on decisions table — works after re-render
+document.getElementById('decisions-table').addEventListener('click', (e) => {
+  const row = e.target.closest('.decision-row');
+  if (!row || !row.dataset.id) return;
+  openDecisionModal(row.dataset.id);
+});
 </script>
 </body>
 </html>

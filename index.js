@@ -379,6 +379,23 @@ After executing, write a brief one-line result per position.
       });
 
       mgmtReport += `\n\n${content}`;
+
+      // Persist full management cycle report ke decision-log untuk popup detail.
+      // Per-position close/claim actions sudah ke-log dari executor.js separately;
+      // this captures the LLM's overall reasoning + action summary.
+      appendDecision({
+        type: "mgmt_cycle",
+        actor: "MANAGER",
+        summary: `Managed ${actionPositions.length} position(s): ${actionSummary}`,
+        reason: stripThink(mgmtReport).slice(0, 500),
+        full_report: stripThink(mgmtReport),
+        metrics: {
+          total_positions: positions.length,
+          total_value_usd: Math.round(totalValue * 100) / 100,
+          total_unclaimed_usd: Math.round(totalUnclaimed * 100) / 100,
+          action_count: actionPositions.length,
+        },
+      });
     } else {
       log("cron", "Management: all positions STAY — skipping LLM");
       await liveMessage?.note("No tool actions needed.");
@@ -728,19 +745,53 @@ IMPORTANT:
         },
       });
     screenReport = content;
+    const cleanReport = stripThink(content);
+    // Snapshot candidates that LLM saw (compact — for popup detail context)
+    const candidateSnapshot = (allCandidates || []).slice(0, 20).map(({ pool: p }) => ({
+      pool_name: p?.name || p?.pool_name || null,
+      pool: p?.pool || null,
+      mcap: p?.mcap ?? null,
+      tvl: p?.tvl ?? null,
+      fee_active_tvl_ratio: p?.fee_active_tvl_ratio ?? null,
+      volatility: p?.volatility ?? null,
+      holders: p?.holders ?? null,
+      organic_score: p?.organic_score ?? null,
+      base_symbol: p?.base?.symbol || null,
+      multi_layer: p?.multi_layer || null,
+    }));
     if (/⛔\s*NO DEPLOY/i.test(content)) {
       appendDecision({
         type: "no_deploy",
         actor: "SCREENER",
         summary: "LLM chose no deploy",
-        reason: stripThink(content).slice(0, 500),
+        reason: cleanReport.slice(0, 500),
+        full_report: cleanReport,
+        candidates_seen: candidateSnapshot,
       });
     } else if (!deploySucceeded) {
       appendDecision({
         type: "no_deploy",
         actor: "SCREENER",
         summary: deployAttempted ? "Deploy attempt did not succeed" : "No successful deploy in screening cycle",
-        reason: stripThink(content).slice(0, 500),
+        reason: cleanReport.slice(0, 500),
+        full_report: cleanReport,
+        candidates_seen: candidateSnapshot,
+      });
+    } else {
+      // Deploy succeeded — supplementary log to capture full LLM reasoning.
+      // The per-deploy "deploy" entry is logged separately by dlmm.js with bin range details;
+      // this one captures the WHY (rationale + alternatives considered).
+      appendDecision({
+        type: "screen_cycle",
+        actor: "SCREENER",
+        summary: "LLM picked deploy candidate (see deploy entry above for tx details)",
+        reason: cleanReport.slice(0, 500),
+        full_report: cleanReport,
+        candidates_seen: candidateSnapshot,
+        metrics: {
+          total_candidates_seen: candidateSnapshot.length,
+          deploy_succeeded: true,
+        },
       });
     }
   } catch (error) {
