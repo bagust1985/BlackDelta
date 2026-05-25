@@ -1,0 +1,63 @@
+{
+  "positions": [
+    {
+      "id": "paper_1779697629481_h67xip",
+      "deployed_at": "2026-05-25T08:27:09.481Z",
+      "pool": "BGRTiYMPfpfYANXxbAsgTW7KMPt6DTjahEytAZDvFwi3",
+      "pool_name": "RICH-SOL",
+      "base_mint": "5hiLgyybrAYPpUwNFa38agfZ8iEtnahWKAPixcfspump",
+      "strategy": "spot",
+      "amount_sol": 0.6,
+      "bin_step": 100,
+      "bin_range": {
+        "min": null,
+        "max": null
+      },
+      "bins_below": 45,
+      "volatility": 1.4072,
+      "fee_tvl_ratio": 0.2934,
+      "initial_price_usd": 0.002522,
+      "decision_id": null,
+      "status": "open",
+      "last_check_at": "2026-05-25T11:45:00.752Z",
+      "current_price_usd": 0.002698,
+      "liquidity_usd": 124691.71,
+      "price_drift_pct": 6.98,
+      "estimated_pnl_pct": 2.29,
+      "estimated_pnl_usd": 1.17,
+      "minutes_held": 198,
+      "dexscreener_h1_change": 269629,
+      "dexscreener_h24_change": -58.04
+    },
+    {
+      "id": "paper_1779697831434_krudrp",
+      "deployed_at": "2026-05-25T08:30:31.434Z",
+      "pool": "339q4zyLK3yDXLPa6fufM2EKkc76AKmQiv2eyJ8Pm976",
+      "pool_name": "Ebola-SOL",
+      "base_mint": "5vicJEyYTDBqMsKe74vWQeDVMe5cmeA3vr1AT8RXb9t1",
+      "strategy": "spot",
+      "amount_sol": 0.6,
+      "bin_step": 100,
+      "bin_range": {
+        "min": null,
+        "max": null
+      },
+      "bins_below": 45,
+      "volatility": 1.5199,
+      "fee_tvl_ratio": 0.098,
+      "initial_price_usd": 0.0002925,
+      "decision_id": null,
+      "status": "open",
+      "last_check_at": "2026-05-25T11:45:00.776Z",
+      "current_price_usd": 0.0002929,
+      "liquidity_usd": 9358.46,
+      "price_drift_pct": 0.14,
+      "estimated_pnl_pct": 1.29,
+      "estimated_pnl_usd": 0.66,
+      "minutes_held": 194,
+      "dexscreener_h1_change": -3.01,
+      "dexscreener_h24_change": -20.1
+    }
+  ],
+  "closed": []
+}

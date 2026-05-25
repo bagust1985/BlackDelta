@@ -1,0 +1,23 @@
+{
+  "_description": "Spot strategy preset (DEFAULT) — uniform liquidity across bins, high frequency / quick exits / tight SL. Best for active memecoin season with frequent pumps & dumps. Trades ~25-50/day, fast compounding cycle.",
+  "strategy": "spot",
+  "minBinsBelow": 35,
+  "maxBinsBelow": 69,
+  "defaultBinsBelow": 69,
+  "deployAmountSol": 0.6,
+  "maxPositions": 5,
+  "minVolume": 500,
+  "minTokenAgeHours": null,
+  "maxVolatility": 1.8,
+  "outOfRangeBinsToClose": 10,
+  "outOfRangeWaitMinutes": 90,
+  "stopLossPct": -10,
+  "recentLossVetoPct": -10,
+  "takeProfitPct": 5,
+  "minFeePerTvl24h": 1,
+  "minAgeBeforeYieldCheck": 360,
+  "maxPositionAgeHours": 6,
+  "maxPositionAgeExtensionHours": 3,
+  "maxAgeCloseLossThresholdPct": -5,
+  "volatilityAwareTp": true
+}

@@ -1,0 +1,28 @@
+{
+  "_description": "Bid-Ask strategy preset — catches deep dips with edge-concentrated liquidity. Wider range, longer hold, looser SL. Best for sideways markets with whipsaws or when expecting buy-the-dip opportunities. Less frequent trades (~5-10/day vs spot ~25-50/day), longer compounding cycle.",
+  "_strategy_overview": {
+    "spot": "uniform liquidity across bins below active (current default — high frequency, tight exits)",
+    "bid_ask": "concentrated at FARTHEST bin = deepest below active (this preset — catch deep dumps, ride rebound)",
+    "curve": "concentrated near active (not in this preset — quick fills, similar to spot)"
+  },
+  "strategy": "bid_ask",
+  "minBinsBelow": 60,
+  "maxBinsBelow": 120,
+  "defaultBinsBelow": 90,
+  "deployAmountSol": 0.8,
+  "maxPositions": 4,
+  "minVolume": 2000,
+  "minTokenAgeHours": 2,
+  "maxVolatility": 3.5,
+  "outOfRangeBinsToClose": 20,
+  "outOfRangeWaitMinutes": 240,
+  "stopLossPct": -20,
+  "recentLossVetoPct": -20,
+  "takeProfitPct": 12,
+  "minFeePerTvl24h": 0.5,
+  "minAgeBeforeYieldCheck": 240,
+  "maxPositionAgeHours": 12,
+  "maxPositionAgeExtensionHours": 6,
+  "maxAgeCloseLossThresholdPct": -10,
+  "volatilityAwareTp": false
+}

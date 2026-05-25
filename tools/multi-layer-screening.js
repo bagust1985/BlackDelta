@@ -20,6 +20,7 @@ import { log } from "../logger.js";
 const DEXSCREENER_API = "https://api.dexscreener.com/latest/dex/tokens";
 const RUGCHECK_API    = "https://api.rugcheck.xyz/v1/tokens";
 const GMGN_API        = "https://gmgn.ai/api/v1/mutil_window_token_info/sol";
+const BIRDEYE_API     = "https://public-api.birdeye.so";
 
 // ─── Helpers ──────────────────────────────────────────────────────
 
@@ -64,17 +65,29 @@ export async function checkDexScreener(mint, tokenAgeHours, tokenName, screening
     const boosts = safeNum(best.boosts?.active, 0);
     const txnsH1 = (safeNum(best.txns?.h1?.buys, 0)) + (safeNum(best.txns?.h1?.sells, 0));
     const volH1 = safeNum(best.volume?.h1, 0);
+    const volH24 = safeNum(best.volume?.h24, 0);
     const liquidityUsd = safeNum(best.liquidity?.usd, 0);
     const mcap = safeNum(best.marketCap, 0);
     const symbol = String(best.baseToken?.symbol || tokenName || "").toLowerCase();
+
+    // Price momentum (anti-ATH-trap)
+    const priceChM5  = safeNum(best.priceChange?.m5,  0);
+    const priceChH1  = safeNum(best.priceChange?.h1,  0);
+    const priceChH6  = safeNum(best.priceChange?.h6,  0);
+    const priceChH24 = safeNum(best.priceChange?.h24, 0);
 
     const summary = {
       boosts_active: boosts,
       txns_h1_total: txnsH1,
       volume_h1: volH1,
+      volume_h24: volH24,
       liquidity_usd: liquidityUsd,
       marketCap: mcap,
       pair_count: pairs.length,
+      price_change_m5:  priceChM5,
+      price_change_h1:  priceChH1,
+      price_change_h6:  priceChH6,
+      price_change_h24: priceChH24,
     };
 
     // Rule: high boost (artificial pump signal)
@@ -99,6 +112,29 @@ export async function checkDexScreener(mint, tokenAgeHours, tokenName, screening
     // Rule: low organic activity but high MC (dead-cat sample)
     if (volH1 < 100 && txnsH1 < 20 && mcap > 500_000) {
       return { pass: false, reason: `DexScreener: low activity (vol $${volH1} / ${txnsH1} txns) vs high MC $${mcap} (suspicious)`, data: summary };
+    }
+
+    // ─── Anti-ATH-trap rules (price momentum filters) ──────────────
+    // Skip the entire block if antiAthTrap config doesn't exist or is disabled.
+    const ath = screeningCfg.antiAthTrap;
+    if (ath?.enabled) {
+      // m5 spike — sniper trap (retail FOMO right NOW)
+      if (priceChM5 > ath.maxPriceChangeM5Pct) {
+        return { pass: false, reason: `DexScreener: 5min spike +${priceChM5.toFixed(1)}% > ${ath.maxPriceChangeM5Pct}% (ATH trap)`, data: summary };
+      }
+      // h1 spike — pump trap
+      if (priceChH1 > ath.maxPriceChangeH1Pct) {
+        return { pass: false, reason: `DexScreener: 1h pump +${priceChH1.toFixed(1)}% > ${ath.maxPriceChangeH1Pct}% (ATH trap)`, data: summary };
+      }
+      // h6 spike — sustained pump (likely peak forming)
+      if (priceChH6 > ath.maxPriceChangeH6Pct) {
+        return { pass: false, reason: `DexScreener: 6h pump +${priceChH6.toFixed(1)}% > ${ath.maxPriceChangeH6Pct}% (ATH trap)`, data: summary };
+      }
+      // Volume surge: h1 vol dominates h24 vol (just-now FOMO, unsustainable)
+      if (volH24 > 0 && (volH1 / volH24) > ath.maxVolumeH1RatioH24) {
+        const ratio = (volH1 / volH24 * 100).toFixed(0);
+        return { pass: false, reason: `DexScreener: volume surge — h1 = ${ratio}% of h24 vol (FOMO bait)`, data: summary };
+      }
     }
 
     return { pass: true, data: summary };
@@ -251,6 +287,90 @@ export async function checkGmgn(mint, screeningCfg) {
   }
 }
 
+// ─── Layer 3b: BirdEye Token Security (alternative to GMGN) ──────
+
+/**
+ * Fetch BirdEye token security report — covers top10 holder concentration,
+ * mint/freeze authority, ownership transfer status, etc.
+ *
+ * Endpoints:
+ *   GET /defi/token_security?address={mint}
+ *     - top10HolderBalance, top10HolderPercent
+ *     - mutableMetadata, freezeable, freezeAuthority, transferFeeEnable
+ *     - totalSupply, ownerBalance
+ *
+ * Auth: requires BIRDEYE_API_KEY env var (free tier signup at birdeye.so).
+ * Free tier: ~30 req/min, sufficient for screening cycle (~10 candidates/hour).
+ *
+ * @returns {Promise<{pass:boolean, reason?:string, data?:object}>}
+ */
+export async function checkBirdeye(mint, screeningCfg) {
+  const cfg = screeningCfg.multiLayerScreening;
+  if (!cfg.birdeyeEnabled) return { pass: true, skipped: "disabled" };
+  if (!mint) return { pass: true, skipped: "no_mint" };
+  if (!process.env.BIRDEYE_API_KEY) return { pass: true, skipped: "no_api_key" };
+
+  try {
+    const res = await fetchWithTimeout(
+      `${BIRDEYE_API}/defi/token_security?address=${mint}`,
+      {
+        headers: {
+          "X-API-KEY": process.env.BIRDEYE_API_KEY,
+          "x-chain":   "solana",
+          "Accept":    "application/json",
+        },
+      },
+      cfg.apiTimeoutMs,
+    );
+
+    if (!res.ok) return { pass: true, skipped: `http_${res.status}` };
+    const json = await res.json();
+    if (!json?.success || !json?.data) return { pass: true, skipped: "no_data" };
+    const d = json.data;
+
+    const top10Pct        = safeNum(d.top10HolderPercent, 0);    // as 0-1 decimal
+    const mutableMeta     = !!d.mutableMetadata;
+    const freezeable      = !!d.freezeable;
+    const freezeAuthority = d.freezeAuthority || null;
+    const transferFeeOn   = !!d.transferFeeEnable;
+    const ownerPct        = safeNum(d.ownerPercentage, 0);
+    const creatorPct      = safeNum(d.creatorPercentage, 0);
+    const top10Wallets    = d.top10HolderBalance != null ? 10 : null;
+
+    const summary = {
+      top10_pct: Number((top10Pct * 100).toFixed(2)),
+      mutable_metadata: mutableMeta,
+      freezeable: freezeable,
+      freeze_authority_active: !!freezeAuthority,
+      transfer_fee_enabled: transferFeeOn,
+      owner_pct: Number((ownerPct * 100).toFixed(2)),
+      creator_pct: Number((creatorPct * 100).toFixed(2)),
+    };
+
+    // Filter rules
+    const maxTop10 = screeningCfg.maxTop10Pct ?? 60;
+    if (top10Pct * 100 > maxTop10) {
+      return { pass: false, reason: `BirdEye: top10 ${(top10Pct * 100).toFixed(1)}% > ${maxTop10}%`, data: summary };
+    }
+    if (cfg.birdeyeBlockTransferFee && transferFeeOn) {
+      return { pass: false, reason: `BirdEye: transfer fee enabled (anti-whale or scam tax)`, data: summary };
+    }
+    if (cfg.birdeyeBlockFreezable && freezeable) {
+      return { pass: false, reason: `BirdEye: freezable token (creator can freeze trades)`, data: summary };
+    }
+    if (cfg.birdeyeMaxCreatorPct != null && creatorPct * 100 > cfg.birdeyeMaxCreatorPct) {
+      return { pass: false, reason: `BirdEye: creator holds ${(creatorPct * 100).toFixed(1)}% > ${cfg.birdeyeMaxCreatorPct}%`, data: summary };
+    }
+    if (cfg.birdeyeMaxOwnerPct != null && ownerPct * 100 > cfg.birdeyeMaxOwnerPct) {
+      return { pass: false, reason: `BirdEye: owner holds ${(ownerPct * 100).toFixed(1)}% > ${cfg.birdeyeMaxOwnerPct}%`, data: summary };
+    }
+
+    return { pass: true, data: summary };
+  } catch (e) {
+    return { pass: true, skipped: `error: ${e.message?.slice(0, 60)}` };
+  }
+}
+
 // ─── Layer 4: Smart Contract Analysis ─────────────────────────────
 
 /**
@@ -306,45 +426,60 @@ export async function applyMultiLayerScreening(candidates, screeningCfg) {
     return { passing: candidates || [], filtered: [], stats: { skipped: true } };
   }
 
-  const stats = { dexscreener: { pass: 0, fail: 0, skip: 0 }, rugcheck: { pass: 0, fail: 0, skip: 0 }, gmgn: { pass: 0, fail: 0, skip: 0 }, sc: { pass: 0, fail: 0, skip: 0 } };
+  const stats = {
+    dexscreener: { pass: 0, fail: 0, skip: 0 },
+    rugcheck:    { pass: 0, fail: 0, skip: 0 },
+    gmgn:        { pass: 0, fail: 0, skip: 0 },
+    birdeye:     { pass: 0, fail: 0, skip: 0 },
+    sc:          { pass: 0, fail: 0, skip: 0 },
+  };
   const passing = [];
   const filtered = [];
 
-  // Run all candidates in parallel — each candidate runs 3 API calls in parallel
+  // Run all candidates in parallel — each candidate runs 4 async API calls in parallel
   const results = await Promise.allSettled(candidates.map(async (p) => {
     const mint = p.base?.mint;
     const ageH = p.token_age_hours;
     const name = p.name;
 
-    // Run DexScreener + Rugcheck + GMGN in parallel
-    const [dexRes, rugRes, gmgnRes] = await Promise.allSettled([
+    // Run DexScreener + Rugcheck + GMGN + BirdEye in parallel
+    const [dexRes, rugRes, gmgnRes, birdRes] = await Promise.allSettled([
       checkDexScreener(mint, ageH, name, screeningCfg),
       checkRugcheck(mint, screeningCfg),
       checkGmgn(mint, screeningCfg),
+      checkBirdeye(mint, screeningCfg),
     ]);
 
-    const dex  = dexRes.status === "fulfilled"  ? dexRes.value  : { pass: true, skipped: "settle_error" };
-    const rug  = rugRes.status === "fulfilled"  ? rugRes.value  : { pass: true, skipped: "settle_error" };
+    const dex  = dexRes.status  === "fulfilled" ? dexRes.value  : { pass: true, skipped: "settle_error" };
+    const rug  = rugRes.status  === "fulfilled" ? rugRes.value  : { pass: true, skipped: "settle_error" };
     const gmgn = gmgnRes.status === "fulfilled" ? gmgnRes.value : { pass: true, skipped: "settle_error" };
+    const bird = birdRes.status === "fulfilled" ? birdRes.value : { pass: true, skipped: "settle_error" };
 
     // Smart contract check is synchronous (uses rugcheck data)
     const sc = checkSmartContract(rug.data, ageH, screeningCfg);
 
     // Update stats
-    for (const [k, r] of [["dexscreener", dex], ["rugcheck", rug], ["gmgn", gmgn], ["sc", sc]]) {
+    for (const [k, r] of [["dexscreener", dex], ["rugcheck", rug], ["gmgn", gmgn], ["birdeye", bird], ["sc", sc]]) {
       if (r.skipped) stats[k].skip++;
       else if (r.pass) stats[k].pass++;
       else stats[k].fail++;
     }
 
     // Attach layer data to candidate (for LLM context + dashboard)
-    p.multi_layer = { dexscreener: dex.data || null, rugcheck: rug.data || null, gmgn: gmgn.data || null, smart_contract: sc.data || null };
+    p.multi_layer = {
+      dexscreener: dex.data || null,
+      rugcheck: rug.data || null,
+      gmgn: gmgn.data || null,
+      birdeye: bird.data || null,
+      smart_contract: sc.data || null,
+    };
 
-    // Reject reason — first failing layer wins (priority: SC > Rugcheck > GMGN > DexScreener)
+    // Reject reason — first failing layer wins (priority: SC > Rugcheck > BirdEye > GMGN > DexScreener)
     if (!sc.pass)   return { pool: p, reject: { layer: "smart_contract", reason: sc.reason } };
-    if (!rug.pass)  return { pool: p, reject: { layer: "rugcheck", reason: rug.reason } };
-    if (!gmgn.pass) return { pool: p, reject: { layer: "gmgn", reason: gmgn.reason } };
-    if (!dex.pass)  return { pool: p, reject: { layer: "dexscreener", reason: dex.reason } };
+    if (!rug.pass)  return { pool: p, reject: { layer: "rugcheck",       reason: rug.reason } };
+    if (!bird.pass) return { pool: p, reject: { layer: "birdeye",        reason: bird.reason } };
+    if (!gmgn.pass) return { pool: p, reject: { layer: "gmgn",           reason: gmgn.reason } };
+    if (!dex.pass)  return { pool: p, reject: { layer: "dexscreener",    reason: dex.reason } };
 
     return { pool: p, reject: null };
   }));

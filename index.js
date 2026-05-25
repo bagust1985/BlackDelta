@@ -60,6 +60,13 @@ if (isMain) {
         layers.push("GMGN");
       }
     }
+    if (mls.birdeyeEnabled) {
+      if (!process.env.BIRDEYE_API_KEY) {
+        log("startup_warn", "multiLayerScreening.birdeyeEnabled=true but BIRDEYE_API_KEY env var is NOT set — BirdEye layer will be skipped");
+      } else {
+        layers.push("BirdEye");
+      }
+    }
     if (mls.smartContractCheck) layers.push("SmartContract");
     log("startup", `Multi-layer screening enabled: ${layers.join(" + ") || "(none)"}`);
   }
@@ -433,6 +440,12 @@ export async function runScreeningCycle({ silent = false } = {}) {
     log("cron", "Screening skipped — previous cycle still running");
     return null;
   }
+
+  // Note: when config.screening.deployPaused=true, the screening cycle STILL RUNS
+  // (LLM analyzes candidates + reports to Telegram/dashboard), but actual
+  // deploy_position calls are blocked at the executor safety-check layer.
+  // This allows monitoring market opportunities without committing capital.
+
   _screeningBusy = true; // set immediately — prevents TOCTOU race with concurrent callers
   _screeningLastTriggered = Date.now();
 
@@ -913,6 +926,48 @@ Summarize the current portfolio health, total fees earned, and performance of al
     }
   }
 
+  // Paper PnL Tracker — eval open paper positions, close at age cap.
+  let paperTask = null;
+  if (config.paperTracker?.enabled) {
+    const paperCron = config.paperTracker.cron || "*/15 * * * *";
+    if (cron.validate(paperCron)) {
+      paperTask = cron.schedule(paperCron, async () => {
+        try {
+          const { evaluatePaperPositions } = await import("./paper-tracker.js");
+          const r = await evaluatePaperPositions();
+          if (r.evaluated > 0 || r.closed > 0) {
+            log("cron", `Paper tracker: evaluated ${r.evaluated}, closed ${r.closed}, open ${r.open_after}`);
+          }
+        } catch (e) {
+          log("cron_error", `Paper tracker failed: ${e.message}`);
+        }
+      }, { timezone: 'UTC' });
+      log("cron", `Paper tracker cron scheduled: "${paperCron}"`);
+    }
+  }
+
+  // Market Regime Detector — periodic check + optional auto-pause/resume deploy.
+  let regimeTask = null;
+  if (config.marketRegime?.enabled) {
+    const regimeCron = config.marketRegime.cron || "*/30 * * * *";
+    if (cron.validate(regimeCron)) {
+      regimeTask = cron.schedule(regimeCron, async () => {
+        try {
+          const { runRegimeCheck } = await import("./market-regime.js");
+          const r = await runRegimeCheck();
+          if (r.action && r.action !== "no_change" && r.action !== "report_only (autoToggle=false)") {
+            log("cron", `Market regime ${r.action}: deployPaused → ${r.newState}`);
+          }
+        } catch (e) {
+          log("cron_error", `Market regime check failed: ${e.message}`);
+        }
+      }, { timezone: 'UTC' });
+      log("cron", `Market regime cron scheduled: "${regimeCron}" UTC (autoToggle=${config.marketRegime.autoToggle ? "on" : "off"})`);
+    } else {
+      log("cron_warn", `Invalid marketRegime.cron expression "${regimeCron}" — regime check disabled`);
+    }
+  }
+
   // Lightweight 30s PnL poller — updates trailing TP state between management cycles, no LLM
   let _pnlPollBusy = false;
   const pnlPollInterval = setInterval(async () => {
@@ -976,6 +1031,8 @@ Summarize the current portfolio health, total fees earned, and performance of al
 
   _cronTasks = [mgmtTask, screenTask, healthTask, briefingTask, briefingWatchdog];
   if (lessonsTask) _cronTasks.push(lessonsTask);
+  if (paperTask)   _cronTasks.push(paperTask);
+  if (regimeTask)  _cronTasks.push(regimeTask);
   // Store interval ref so stopCronJobs can clear it
   _cronTasks._pnlPollInterval = pnlPollInterval;
   log("cron", `Cycles started — management every ${config.schedule.managementIntervalMin}m, screening every ${config.schedule.screeningIntervalMin}m`);

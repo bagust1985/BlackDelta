@@ -147,14 +147,33 @@ export const config = {
     minTokenAgeHours:   u.minTokenAgeHours   ?? null, // null = no minimum
     maxTokenAgeHours:   u.maxTokenAgeHours   ?? null, // null = no maximum
     athFilterPct:       u.athFilterPct       ?? null, // e.g. -20 = only deploy if price is >= 20% below ATH
+    // Pause new deploys without stopping management cycle.
+    // Use when you want bot to manage existing positions but NOT open new ones.
+    // (Unlike /pause which stops ALL cron and disables SL/TP safety.)
+    deployPaused:       u.deployPaused       ?? false,
+    // Anti-ATH-trap filters — reject pools showing momentum spike pattern
+    // that suggests bot would deploy at local peak right before dump.
+    antiAthTrap: {
+      enabled:                u.antiAthTrap?.enabled                ?? true,
+      maxPriceChangeH1Pct:    u.antiAthTrap?.maxPriceChangeH1Pct    ?? 30,   // reject if +30%+ pump in 1h
+      maxPriceChangeH6Pct:    u.antiAthTrap?.maxPriceChangeH6Pct    ?? 80,   // reject if +80%+ in 6h
+      maxPriceChangeM5Pct:    u.antiAthTrap?.maxPriceChangeM5Pct    ?? 15,   // reject if +15%+ in 5min
+      maxVolumeH1RatioH24:    u.antiAthTrap?.maxVolumeH1RatioH24    ?? 0.40, // reject if h1 vol > 40% of h24 vol (FOMO surge)
+    },
     // Multi-layer screening (DexScreener + Rugcheck + GMGN + SC) — runs after OKX enrichment.
     // Each layer hard-filters independently; failures fall back to "pass" (don't block on layer error).
     multiLayerScreening: {
       enabled:            u.multiLayerScreening?.enabled            ?? true,
       dexScreenerEnabled: u.multiLayerScreening?.dexScreenerEnabled ?? true,
       rugcheckEnabled:    u.multiLayerScreening?.rugcheckEnabled    ?? true,
-      gmgnEnabled:        u.multiLayerScreening?.gmgnEnabled        ?? false, // requires GMGN_API_KEY
+      gmgnEnabled:        u.multiLayerScreening?.gmgnEnabled        ?? false, // requires GMGN_API_KEY (CF-blocked)
+      birdeyeEnabled:     u.multiLayerScreening?.birdeyeEnabled     ?? false, // requires BIRDEYE_API_KEY (free signup)
       smartContractCheck: u.multiLayerScreening?.smartContractCheck ?? true,  // uses Rugcheck-derived data
+      // BirdEye filters
+      birdeyeBlockTransferFee:  u.multiLayerScreening?.birdeyeBlockTransferFee  ?? true,
+      birdeyeBlockFreezable:    u.multiLayerScreening?.birdeyeBlockFreezable    ?? true,
+      birdeyeMaxCreatorPct:     u.multiLayerScreening?.birdeyeMaxCreatorPct     ?? 10,
+      birdeyeMaxOwnerPct:       u.multiLayerScreening?.birdeyeMaxOwnerPct       ?? 15,
       // Soft tuning
       maxBoostCount:       u.multiLayerScreening?.maxBoostCount       ?? 500,
       maxRugcheckScore:    u.multiLayerScreening?.maxRugcheckScore    ?? 50000,
@@ -265,6 +284,28 @@ export const config = {
     lookbackHours: u.lessonsLoop?.lookbackHours ?? 24,
     minCloses:     u.lessonsLoop?.minCloses     ?? 3,  // skip if too few closes
     maxInsights:   u.lessonsLoop?.maxInsights   ?? 3,  // top-N insights to keep
+  },
+
+  // ─── Paper PnL Tracker ────────────────────────────────────────────
+  // Saat deployPaused=true, every blocked deploy attempt creates paper entry
+  // di paper-positions.json. Cron evaluates current price → simulates PnL.
+  paperTracker: {
+    enabled:        u.paperTracker?.enabled        ?? true,
+    cron:           u.paperTracker?.cron           ?? "*/15 * * * *",  // every 15 min
+    maxHoldHours:   u.paperTracker?.maxHoldHours   ?? 6,  // close paper position after 6h
+  },
+
+  // ─── Market Regime Detector ───────────────────────────────────────
+  // Periodic check of recent perf to classify market HOT/WARM/COLD.
+  // When autoToggle=true, auto-pause deploy in COLD market, auto-resume in HOT.
+  // Score 0-100 (vol+fee/TVL+winRate+avgPnL, each 0-25).
+  marketRegime: {
+    enabled:        u.marketRegime?.enabled        ?? true,
+    autoToggle:     u.marketRegime?.autoToggle     ?? false,  // start in report-only mode
+    cron:           u.marketRegime?.cron           ?? "*/30 * * * *",  // every 30 min
+    windowHours:    u.marketRegime?.windowHours    ?? 24,
+    coldThreshold:  u.marketRegime?.coldThreshold  ?? 40,
+    hotThreshold:   u.marketRegime?.hotThreshold   ?? 60,
   },
 
   // ─── Darwinian Signal Weighting ───────

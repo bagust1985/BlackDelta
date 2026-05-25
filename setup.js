@@ -177,6 +177,11 @@ const gmgnKey = await ask(
   alreadySet(ev("GMGN_API_KEY", ""))
 );
 
+const birdeyeKey = await ask(
+  "BirdEye API key (token security screening, optional — free signup at birdeye.so)",
+  alreadySet(ev("BIRDEYE_API_KEY", ""))
+);
+
 // ─── Section 2: Telegram ──────────────────────────────────────────────────────
 console.log("\n── Telegram (optional — skip to disable) ─────────────────────");
 
@@ -410,6 +415,7 @@ const envMap = {
   ...(rpcUrl                ? { RPC_URL: rpcUrl } : {}),
   ...(isKept(heliusKey)     ? {} : { HELIUS_API_KEY: heliusKey }),
   ...(isKept(gmgnKey)       ? {} : { GMGN_API_KEY: gmgnKey }),
+  ...(isKept(birdeyeKey)    ? {} : { BIRDEYE_API_KEY: birdeyeKey }),
   ...(isKept(telegramToken) ? {} : { TELEGRAM_BOT_TOKEN: telegramToken }),
   ...(telegramChatId        ? { TELEGRAM_CHAT_ID: telegramChatId } : {}),
   DRY_RUN: dryRun ? "true" : "false",

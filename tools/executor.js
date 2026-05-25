@@ -373,6 +373,9 @@ const toolMap = {
       minTokenAgeHours: ["screening", "minTokenAgeHours"],
       maxTokenAgeHours: ["screening", "maxTokenAgeHours"],
       athFilterPct:     ["screening", "athFilterPct"],
+      deployPaused:     ["screening", "deployPaused"],
+      // antiAthTrap nested keys must be edited via user-config.json directly
+      // (CONFIG_MAP only supports 1-level deep config access).
       minFeePerTvl24h: ["management", "minFeePerTvl24h"],
       // management
       minClaimAmount: ["management", "minClaimAmount"],
@@ -813,6 +816,25 @@ export async function executeTool(name, args) {
 async function runSafetyChecks(name, args) {
   switch (name) {
     case "deploy_position": {
+      // Deploy-paused guard: hard block any deploy attempt when toggle is on.
+      // Screening cycle still runs (LLM analysis + report) but no on-chain action.
+      // ALSO records paper entry for paper PnL tracking.
+      if (config.screening?.deployPaused) {
+        // Best-effort paper entry — don't fail if paper-tracker errors
+        try {
+          const { recordPaperEntry } = await import("../paper-tracker.js");
+          recordPaperEntry(args, {
+            pool_name: args.pool_name,
+            volatility: args.volatility,
+            fee_tvl_ratio: args.fee_tvl_ratio,
+          });
+        } catch { /* silent — paper tracker failure shouldn't block block */ }
+        return {
+          pass: false,
+          reason: `Deploy blocked — bot is in deploy-paused mode. Recorded as PAPER entry for tracking. Toggle off via /setcfg deployPaused false to resume real deploys.`,
+        };
+      }
+
       const poolThresholds = await validateDeployPoolThresholds(args);
       if (!poolThresholds.pass) return poolThresholds;
 

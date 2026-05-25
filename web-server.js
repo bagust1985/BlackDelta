@@ -166,6 +166,71 @@ function handleDecisionById(id) {
   return decision; // full payload including full_report + candidates_seen
 }
 
+function handlePaperTrades() {
+  const PAPER_PATH = path.join(__dirname, "paper-positions.json");
+  const data = readJsonSafe(PAPER_PATH, { positions: [], closed: [] });
+  const closed = data.closed || [];
+  const open = data.positions || [];
+
+  const wins = closed.filter((p) => (p.estimated_pnl_usd || 0) > 0);
+  const totalPnl = closed.reduce((s, p) => s + (p.estimated_pnl_usd || 0), 0);
+
+  return {
+    open_count: open.length,
+    closed_count: closed.length,
+    win_count: wins.length,
+    win_rate_pct: closed.length > 0 ? Number(((wins.length / closed.length) * 100).toFixed(1)) : null,
+    total_pnl_usd: Number(totalPnl.toFixed(2)),
+    avg_pnl_usd: closed.length > 0 ? Number((totalPnl / closed.length).toFixed(2)) : 0,
+    open: open.slice(0, 25),
+    closed: closed.slice(-25).reverse(),
+  };
+}
+
+function handleAbCompare() {
+  // A/B compare: paper PnL (paused mode) vs actual PnL (live mode), last 7 days
+  const PAPER_PATH = path.join(__dirname, "paper-positions.json");
+  const paperData = readJsonSafe(PAPER_PATH, { closed: [] });
+  const lessonsData = readJsonSafe(LESSONS, { performance: [] });
+
+  const cutoff = Date.now() - 7 * 24 * 3600 * 1000;
+  const paperClosed = (paperData.closed || []).filter((p) =>
+    p.closed_at && new Date(p.closed_at).getTime() > cutoff
+  );
+  const actualClosed = (lessonsData.performance || []).filter((p) =>
+    p.recorded_at && new Date(p.recorded_at).getTime() > cutoff
+  );
+
+  const paperStats = computeStats(paperClosed, "estimated_pnl_usd", "estimated_pnl_pct");
+  const actualStats = computeStats(actualClosed, "pnl_usd", "pnl_pct");
+
+  return {
+    window_hours: 168,
+    paper: { ...paperStats, sample: paperClosed.length },
+    actual: { ...actualStats, sample: actualClosed.length },
+    delta: {
+      win_rate_diff: paperStats.win_rate_pct != null && actualStats.win_rate_pct != null
+        ? Number((paperStats.win_rate_pct - actualStats.win_rate_pct).toFixed(1)) : null,
+      avg_pnl_usd_diff: Number((paperStats.avg_pnl_usd - actualStats.avg_pnl_usd).toFixed(2)),
+    },
+  };
+}
+
+function computeStats(arr, pnlUsdKey, pnlPctKey) {
+  if (!arr || arr.length === 0) return { count: 0, total_pnl_usd: 0, avg_pnl_usd: 0, win_rate_pct: null };
+  const wins = arr.filter((p) => (p[pnlUsdKey] || 0) > 0);
+  const totalPnl = arr.reduce((s, p) => s + (p[pnlUsdKey] || 0), 0);
+  const totalPnlPct = arr.reduce((s, p) => s + (p[pnlPctKey] || 0), 0);
+  return {
+    count: arr.length,
+    win_count: wins.length,
+    win_rate_pct: Number(((wins.length / arr.length) * 100).toFixed(1)),
+    total_pnl_usd: Number(totalPnl.toFixed(2)),
+    avg_pnl_usd: Number((totalPnl / arr.length).toFixed(2)),
+    avg_pnl_pct: Number((totalPnlPct / arr.length).toFixed(2)),
+  };
+}
+
 function handlePerformance() {
   const data = readJsonSafe(LESSONS, { performance: [], lessons: [] });
   const perf = data.performance || [];
@@ -322,6 +387,10 @@ async function handleRequest(req, res) {
         return json(res, 200, handleDecisions());
       case "/api/performance":
         return json(res, 200, handlePerformance());
+      case "/api/paper":
+        return json(res, 200, handlePaperTrades());
+      case "/api/ab-compare":
+        return json(res, 200, handleAbCompare());
       case "/healthz":
         return json(res, 200, { ok: true });
       default: {

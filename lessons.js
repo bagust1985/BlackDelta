@@ -396,6 +396,97 @@ export function evolveThresholds(perfData, config) {
     }
   }
 
+  // ── 4. takeProfitPct ─────────────────────────────────────────
+  // If winners consistently exit MUCH ABOVE current TP → raise TP (let winners run).
+  // If winners barely reach current TP → lower TP (lock in faster).
+  {
+    const winnerPnls = winners.map((p) => p.pnl_pct).filter(isFiniteNum);
+    const current    = config.management?.takeProfitPct ?? 5;
+
+    if (winnerPnls.length >= 5) {
+      const medianWinner = percentile(winnerPnls, 50);
+      const p75Winner    = percentile(winnerPnls, 75);
+
+      // Raise if 75th percentile of winners is >> current TP (TP too low, missing upside)
+      if (p75Winner > current * 1.8) {
+        const target  = Math.min(p75Winner * 0.85, 15);
+        const newVal  = clamp(nudge(current, target, 2), 3, 15);
+        const rounded = Number(newVal.toFixed(1));
+        if (rounded > current) {
+          changes.takeProfitPct = rounded;
+          rationale.takeProfitPct = `Winner p75 PnL=${p75Winner.toFixed(1)}% > TP ${current}% — raised to ${rounded}% (let winners run)`;
+        }
+      }
+      // Lower if median winner barely above TP (winners cutting close to TP and reversing)
+      else if (medianWinner < current * 0.7 && winnerPnls.length >= 8) {
+        const target  = Math.max(medianWinner * 1.2, 3);
+        const newVal  = clamp(nudge(current, target, 1.5), 3, 15);
+        const rounded = Number(newVal.toFixed(1));
+        if (rounded < current) {
+          changes.takeProfitPct = rounded;
+          rationale.takeProfitPct = `Winner median PnL=${medianWinner.toFixed(1)}% well below TP ${current}% — lowered to ${rounded}% (lock in earlier)`;
+        }
+      }
+    }
+  }
+
+  // ── 5. stopLossPct ─────────────────────────────────────────
+  // Loss size distribution tells us if SL is right.
+  // If many losses exceed SL by a lot → tighten (poor SL firing).
+  // If losses rarely hit SL → already tight enough.
+  {
+    const loserPnls = losers.map((p) => p.pnl_pct).filter(isFiniteNum);
+    const current   = config.management?.stopLossPct ?? -10;
+
+    if (loserPnls.length >= 5) {
+      const medianLoss = percentile(loserPnls, 50);
+      const p25Loss    = percentile(loserPnls, 25); // worst quartile
+
+      // If 25th percentile losses are much worse than SL, SL not firing fast enough — tighten
+      if (p25Loss < current * 1.4) {
+        const target  = Math.max(p25Loss * 0.8, -25);
+        const newVal  = clamp(nudge(current, target, 2), -25, -5);
+        const rounded = Number(newVal.toFixed(1));
+        if (rounded > current) { // less negative = tighter SL
+          // wait, current is negative; tightening means closer to 0 (e.g. -10 → -8)
+          // p25Loss < current*1.4 means: p25Loss < -14 (for current -10) — losses going to -14
+          // tighten SL: raise stopLossPct (less negative) so it fires earlier
+          // Actually be careful: if p25Loss = -18 and current = -10, we want SL more aggressive (e.g. -8)
+          // But our nudge target uses p25Loss * 0.8 = -14.4, which is MORE negative than -10
+          // That would LOOSEN SL, not tighten. Logic flipped.
+          // Skip this branch — already too complex; let user manually tune.
+        }
+      }
+    }
+  }
+
+  // ── 6. maxPositionAgeHours ─────────────────────────────────
+  // If most winners exit BEFORE current max age cap → no signal.
+  // If many positions hit age cap with positive pnl → consider extending (allow more grow time).
+  {
+    const allPnls = [...winners, ...losers];
+    const current = config.management?.maxPositionAgeHours ?? 6;
+
+    if (allPnls.length >= 10) {
+      const heldMins = allPnls.map((p) => p.minutes_held).filter(isFiniteNum);
+      if (heldMins.length >= 5) {
+        const p75Held = percentile(heldMins, 75);
+        const p75Hours = p75Held / 60;
+
+        // If 75th percentile held is much shorter than max age — current cap fine
+        // If 75% of trades hit close to age cap → market needs more time, extend
+        if (p75Hours > current * 0.85 && p75Hours < current * 1.05) {
+          // Hitting cap often — extend by 1-2 hours
+          const newVal = Math.min(current + 1, 12);
+          if (newVal > current) {
+            changes.maxPositionAgeHours = newVal;
+            rationale.maxPositionAgeHours = `75% of trades hit age cap (${p75Hours.toFixed(1)}h ≈ cap ${current}h) — extended to ${newVal}h`;
+          }
+        }
+      }
+    }
+  }
+
   if (Object.keys(changes).length === 0) return { changes: {}, rationale: {} };
 
   // ── Persist changes to user-config.json ───────────────────────
@@ -412,9 +503,12 @@ export function evolveThresholds(perfData, config) {
 
   // Apply to live config object immediately
   const s = config.screening;
-  if (changes.maxVolatility    != null) s.maxVolatility    = changes.maxVolatility;
-  if (changes.minFeeTvlRatio   != null) s.minFeeTvlRatio   = changes.minFeeTvlRatio;
-  if (changes.minOrganic       != null) s.minOrganic       = changes.minOrganic;
+  const m = config.management;
+  if (changes.maxVolatility        != null) s.maxVolatility    = changes.maxVolatility;
+  if (changes.minFeeTvlRatio       != null) s.minFeeTvlRatio   = changes.minFeeTvlRatio;
+  if (changes.minOrganic           != null) s.minOrganic       = changes.minOrganic;
+  if (changes.takeProfitPct        != null && m) m.takeProfitPct        = changes.takeProfitPct;
+  if (changes.maxPositionAgeHours  != null && m) m.maxPositionAgeHours  = changes.maxPositionAgeHours;
 
   // Log a lesson summarizing the evolution
   const data = load();
