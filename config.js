@@ -93,6 +93,14 @@ export const config = {
   rpc: {
     httpUrl:    u.rpcUrl ?? process.env.RPC_URL ?? null,
     wsEndpoint: u.rpcWsUrl ?? process.env.RPC_WS_URL ?? null,
+    // Multi-RPC fallback chain — bot auto-rotates when primary returns 429/5xx.
+    // Order: env RPC_FALLBACK_URLS (comma-sep) → user-config rpcFallbackUrls → built-in defaults.
+    fallbackUrls: u.rpcFallbackUrls ?? [
+      "https://api.mainnet-beta.solana.com",
+      "https://solana-mainnet.rpc.extrnode.com",
+      "https://rpc.ankr.com/solana",
+      "https://solana.publicnode.com",
+    ],
   },
   subscriptions: {
     enabled:          u.subscriptions?.enabled          ?? false,
